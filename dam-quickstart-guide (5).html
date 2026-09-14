@@ -1,0 +1,2267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The DAM, current state, start to finish</title>
+<style>
+  /* --- Scale tokens (subset, from scale-design-system-v1_2) --- */
+  :root{
+    --surface-default:#ffffff;
+    --surface-subtle:#faf9f8;      /* stone-50 */
+    --surface-muted:#f2efed;       /* stone-100 */
+    --border-default:#e3ded9;      /* stone-200 */
+    --border-strong:#d5cec8;       /* stone-300 */
+    --text-default:#261E1B;        /* stone-12 / dark charcoal */
+    --text-subtle:#6b625c;         /* stone-600 */
+    --text-tertiary:#938981;       /* stone-500 */
+    --primary:#0B6E8A;             /* Cerulean / accent-9 */
+    --primary-subtle:#E4F5FC;      /* accent-3 */
+    --brand-green:#006B5C;
+    --status-active-bg:#e6f6ec; --status-active-fg:#1a7a45; --status-active-bd:#3fbf6f;
+    --status-warn-bg:#fdeede;   --status-warn-fg:#8a5300;  --status-warn-bd:#e59a2e;
+    --status-err-bg:#fdecec;    --status-err-fg:#b02a2a;   --status-err-bd:#e05050;
+    --status-draft-bg:#f2efed;  --status-draft-fg:#6b625c; --status-draft-bd:#d5cec8;
+    --ft-image:#0f7d86; --ft-vector:#233876; --ft-video:#5b3fa8; --ft-document:#9a6b00;
+    --ai-1:#0B6E8A; --ai-2:#29A383; --ai-3:#00A2C7; --ai-4:#5B5BD6;
+    --radius:6px; --radius-sm:4px;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:var(--text-default);
+    background:var(--surface-subtle);
+    line-height:1.55;
+    font-size:15px;
+  }
+  .page{max-width:840px;margin:0 auto;padding:0 24px 96px}
+
+  /* --- Two-pane app shell --- */
+  body.app{overflow:hidden;height:100vh}
+  .shell{display:flex;height:100vh;overflow:hidden}
+  .sidebar{
+    width:290px;flex:none;height:100vh;overflow-y:auto;
+    background:var(--surface-default);
+    border-right:1px solid var(--border-default);
+    padding:28px 22px 28px;
+    box-sizing:border-box;
+    display:flex;flex-direction:column;
+  }
+  .sb-foot{margin-top:auto;padding-top:22px;font-size:11px;line-height:1.5;color:var(--text-tertiary);border-top:1px solid var(--border-default)}
+  .content{flex:1;height:100vh;overflow-y:auto;padding:0}
+  .content .page{max-width:1400px;margin:0 auto;padding:44px 72px 72px}
+  .content .sub{max-width:110ch}
+  .content section>p:not(.sub){max-width:110ch}
+
+  /* sidebar brand */
+  .sb-brand{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--text-subtle);font-weight:600;margin-bottom:22px}
+  .sb-brand .dot{width:8px;height:8px;border-radius:50%;background:var(--brand-green);flex:none}
+  .sb-title{font-size:17px;font-weight:650;line-height:1.25;letter-spacing:-0.01em;margin:0 0 6px;color:var(--text-default)}
+  .sb-meta{font-size:11.5px;color:var(--text-tertiary);margin:0 0 24px;line-height:1.4}
+
+  /* sidebar nav */
+  .sb-nav{list-style:none;margin:0;padding:0}
+  .sb-nav>li{margin:0 0 2px}
+  .sb-nav>li>a{
+    display:flex;align-items:baseline;gap:10px;
+    font-size:13.5px;font-weight:550;color:var(--text-subtle);
+    padding:8px 10px;border-radius:var(--radius-sm);
+    text-decoration:none;border:0;transition:background 0.1s,color 0.1s;
+  }
+  .sb-nav>li>a:hover{background:var(--surface-muted);color:var(--text-default)}
+  .sb-nav>li>a.active{background:var(--primary-subtle);color:var(--primary);font-weight:650}
+  .sb-nav>li>a.nav-notyet{color:#b02a2a}
+  .sb-nav>li>a.nav-notyet:hover{background:#fdecec;color:#C93545}
+  .sb-nav>li>a.nav-notyet.active{background:#fdecec;color:#C93545}
+  .sb-nav .tn{font-variant-numeric:tabular-nums;font-size:11px;font-weight:700;color:var(--primary);flex:none;min-width:16px}
+  .sb-nav>li>a.active .tn{color:var(--primary)}
+  .sb-sub{font-size:11.5px;color:var(--text-tertiary);margin:1px 0 6px 36px;line-height:1.35}
+
+  /* pages */
+  .content section.pg{display:none;animation:fade 0.18s ease}
+  .content section.pg.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* page footer nav */
+  .pagenav{display:flex;justify-content:space-between;gap:16px;margin-top:48px;padding-top:24px;border-top:1px solid var(--border-default)}
+  .pagenav a{display:inline-flex;flex-direction:column;gap:2px;text-decoration:none;border:0;max-width:46%}
+  .pagenav a.next{align-items:flex-end;text-align:right;margin-left:auto}
+  .pagenav .pl{font-size:11px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;color:var(--text-tertiary)}
+  .pagenav .pt{font-size:14.5px;font-weight:620;color:var(--primary)}
+  .pagenav a:hover .pt{text-decoration:underline}
+
+  @media (max-width:820px){
+    body.app{overflow:auto;height:auto}
+    .shell{flex-direction:column;height:auto}
+    .sidebar{width:100%;height:auto;border-right:0;border-bottom:1px solid var(--border-default)}
+    .content{height:auto}
+    .content .page{padding:28px 20px 64px}
+    .content section.pg{display:block}
+  }
+
+  /* --- Masthead --- */
+  header.mast{
+    padding:56px 0 32px;
+    border-bottom:1px solid var(--border-default);
+    margin-bottom:8px;
+  }
+  .kicker{
+    display:inline-flex;align-items:center;gap:8px;
+    font-size:12.5px;color:var(--text-subtle);font-weight:500;
+    margin-bottom:18px;
+  }
+  .kicker .dot{width:7px;height:7px;border-radius:50%;background:var(--brand-green)}
+  h1{font-size:34px;line-height:1.15;margin:0 0 12px;letter-spacing:-0.02em;font-weight:650}
+  .lede{font-size:17px;color:var(--text-subtle);max-width:62ch;margin:0}
+  .meta{margin-top:24px;font-size:13px;color:var(--text-tertiary)}
+
+  /* --- Section --- */
+  section{padding:40px 0;border-bottom:1px solid var(--border-default)}
+  section:last-of-type{border-bottom:0}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
+  .sec-num{
+    font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;
+    color:var(--primary);background:var(--primary-subtle);
+    padding:2px 9px;border-radius:var(--radius-sm);flex:none;
+  }
+  h2{font-size:23px;margin:0;letter-spacing:-0.01em;font-weight:640}
+  h3{font-size:16px;margin:28px 0 8px;font-weight:620}
+  p{margin:12px 0}
+  .sub{color:var(--text-subtle);max-width:66ch}
+  strong{font-weight:620}
+  a{color:var(--primary);text-decoration:none;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:var(--primary)}
+
+  /* --- Task list --- */
+  .tasks{display:grid;gap:0;margin:24px 0 8px;border:1px solid var(--border-default);border-radius:var(--radius);overflow:hidden;background:var(--surface-default)}
+  .task{display:grid;grid-template-columns:40px 1fr;gap:0;border-bottom:1px solid var(--border-default)}
+  .task:last-child{border-bottom:0}
+  .task .n{background:var(--surface-muted);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;color:var(--text-subtle);border-right:1px solid var(--border-default)}
+  .task .body{padding:16px 18px}
+  .task .t{font-weight:610;font-size:15px;margin-bottom:3px}
+  .task .d{color:var(--text-subtle);font-size:14px;margin:0}
+
+  /* --- Wireframe frame --- */
+  figure{margin:26px 0 8px}
+  .wire{
+    border:1px solid var(--border-strong);
+    border-radius:var(--radius);
+    background:var(--surface-default);
+    overflow:hidden;
+  }
+  .wire svg{display:block;width:100%;height:auto}
+  figcaption{font-size:13px;color:var(--text-tertiary);margin-top:9px;padding-left:2px}
+  figcaption b{color:var(--text-subtle);font-weight:600}
+
+  /* --- Screengrab placeholder --- */
+  .grab{
+    border:1.5px dashed var(--border-strong);
+    border-radius:var(--radius);
+    background:repeating-linear-gradient(45deg,var(--surface-subtle),var(--surface-subtle) 10px,var(--surface-muted) 10px,var(--surface-muted) 20px);
+    padding:30px 26px;
+    display:flex;gap:18px;align-items:flex-start;
+  }
+  .grab .tag{
+    flex:none;font-size:11px;font-weight:700;letter-spacing:0.03em;
+    color:#fff;background:var(--primary);padding:4px 10px;border-radius:var(--radius-sm);
+    text-transform:uppercase;margin-top:2px;
+  }
+  .grab .ask{background:var(--surface-default);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:14px 16px;flex:1}
+  .grab .ask .cap{font-weight:640;font-size:14px;margin-bottom:6px}
+  .grab .ask .want{font-size:13.5px;color:var(--text-subtle);margin:0}
+  .grab .ask .want b{color:var(--text-default)}
+
+  /* --- Callout --- */
+  .note{
+    border-left:3px solid var(--primary);
+    background:var(--primary-subtle);
+    padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;
+    margin:22px 0;font-size:14px;
+  }
+  .note.warn{border-left-color:var(--status-warn-bd);background:var(--status-warn-bg)}
+  .note .lbl{font-weight:640;display:block;margin-bottom:3px}
+
+  /* --- Differentiator blocks --- */
+  .diffs{display:grid;gap:14px;margin:24px 0}
+  .diff{border:1px solid var(--border-default);border-radius:var(--radius);padding:18px 20px;background:var(--surface-default)}
+  .diff .h{font-weight:630;font-size:15.5px;margin-bottom:5px;display:flex;align-items:center;gap:9px}
+  .diff .h .mk{width:6px;height:22px;border-radius:2px;background:var(--brand-green);flex:none}
+  .diff.flagged{border-color:var(--status-warn-bd);background:var(--status-warn-bg)}
+  .diff.flagged .mk{background:var(--status-warn-bd)}
+  .soon{font-size:11px;font-weight:700;letter-spacing:0.02em;color:var(--status-warn-fg);background:#fff;border:1px solid var(--status-warn-bd);padding:1px 8px;border-radius:999px;margin-left:8px;white-space:nowrap}
+  .diff p{margin:0;color:var(--text-subtle);font-size:14.5px}
+
+  /* --- Legend badges (inline demo of real chips) --- */
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid;vertical-align:middle}
+  .chip.active{background:var(--status-active-bg);color:var(--status-active-fg);border-color:var(--status-active-bd)}
+  .chip.expired{background:var(--status-err-bg);color:var(--status-err-fg);border-color:var(--status-err-bd)}
+  .chip.embargo{background:var(--status-warn-bg);color:var(--status-warn-fg);border-color:var(--status-warn-bd)}
+  .chip.draft{background:var(--status-draft-bg);color:var(--status-draft-fg);border-color:var(--status-draft-bd)}
+  .chip.region{background:var(--surface-muted);color:var(--text-subtle);border-color:var(--border-strong)}
+  .chip.solid{color:#fff;border:0;font-weight:600}
+  .chip.ftype{background:var(--text-subtle);color:#fff;border:0;font-weight:600}
+  .chip.img{background:var(--ft-image)} .chip.vec{background:var(--ft-vector)} .chip.vid{background:var(--ft-video)} .chip.doc{background:var(--ft-document)}
+
+  .legend-grid{display:grid;grid-template-columns:auto 1fr;gap:10px 18px;margin:18px 0;align-items:center;font-size:14px}
+  .legend-grid .k{white-space:nowrap}
+  .legend-grid .v{color:var(--text-subtle)}
+
+  /* --- Nav map --- */
+  .navmap{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
+  @media (max-width:720px){.navmap{grid-template-columns:repeat(2,1fr)}}
+  .navmap a.cell{display:block;text-decoration:none;color:inherit;position:relative;border:1px solid var(--border-default);border-radius:var(--radius);padding:14px 16px 14px 20px;background:var(--surface-default);overflow:hidden;transition:border-color 0.12s,box-shadow 0.12s,transform 0.12s}
+  .navmap a.cell:hover{border-color:var(--acc,var(--border-strong));box-shadow:0 2px 8px rgba(38,30,27,0.06);transform:translateY(-1px)}
+  .navmap a.cell::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--acc,var(--border-strong))}
+  .navmap a.cell .nm{font-weight:620;font-size:14.5px;margin-bottom:3px;color:var(--text-default)}
+  .navmap a.cell .nm::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--acc,var(--text-tertiary));margin-right:8px;vertical-align:middle}
+  .navmap a.cell .nm::after{content:"›";float:right;color:var(--acc,var(--text-tertiary));font-weight:700;opacity:0;transition:opacity 0.12s}
+  .navmap a.cell:hover .nm::after{opacity:1}
+  .navmap a.cell .nd{font-size:13px;color:var(--text-subtle);margin:0}
+  .navmap .cell .nd{font-size:13px;color:var(--text-subtle);margin:0}
+
+  /* --- Status table (coming soon) --- */
+  table.status{width:100%;border-collapse:collapse;margin:20px 0;font-size:14px}
+  table.status th,table.status td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border-default)}
+  table.status th{font-weight:620;color:var(--text-subtle);background:var(--surface-muted);font-size:12.5px}
+  table.status td:first-child{font-weight:580}
+  .st{font-size:11.5px;font-weight:650;padding:2px 8px;border-radius:var(--radius-sm)}
+  .st.build{background:var(--status-warn-bg);color:var(--status-warn-fg)}
+  .st.scoped{background:var(--primary-subtle);color:var(--primary)}
+  .st.deferred{background:var(--surface-muted);color:var(--text-subtle)}
+
+  /* --- Contents index --- */
+  .toc{border:1px solid var(--border-default);border-radius:var(--radius);background:var(--surface-default);padding:20px 24px;margin:8px 0 8px}
+  .toc-title{font-size:12.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:12px}
+  .toc-list{list-style:none;margin:0;padding:0;counter-reset:none}
+  .toc-list>li{margin:0 0 3px}
+  .toc-list>li>a{display:inline-flex;align-items:baseline;gap:10px;font-size:15px;font-weight:600;color:var(--text-default);padding:4px 0;border-bottom:0}
+  .toc-list>li>a:hover{color:var(--primary)}
+  .toc-list .tn{font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;color:var(--primary);background:var(--primary-subtle);padding:1px 7px;border-radius:var(--radius-sm);flex:none}
+  .toc-list ul{list-style:none;margin:0 0 6px 34px;padding:0}
+  .toc-list ul li a{font-size:13px;color:var(--text-subtle);border-bottom:0}
+  .toc-list ul li a:hover{color:var(--primary)}
+  @media print{.toc{break-inside:avoid}}
+
+  /* --- Attributes vs Tags callout --- */
+  .twocol{display:grid;grid-template-columns:1fr 220px;gap:28px;align-items:center;margin:24px 0 8px;border:1px solid var(--border-default);border-radius:var(--radius);padding:20px 22px;background:var(--surface-default)}
+  .twocol .tclead{margin:0 0 10px;font-size:15px}
+  .twocol .sub{margin:8px 0;font-size:14px}
+  .tc-vis{border-left:1px solid var(--border-default);padding-left:24px}
+  .chiprow{display:flex;gap:12px;justify-content:center;margin-bottom:10px}
+  .dchip{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:500;padding:5px 12px;border-radius:999px;border:1px solid var(--border-strong);background:var(--surface-subtle);color:var(--text-default)}
+  .dchip.ai{border-color:#9fd4e4;background:var(--primary-subtle);color:#0a5468}
+  .dchip.ai svg{flex:none}
+  .chiplbl{display:flex;gap:12px;justify-content:center;font-size:11px;color:var(--text-tertiary)}
+  .chiplbl span{flex:1;text-align:center;max-width:96px}
+  @media (max-width:560px){.twocol{grid-template-columns:1fr}.tc-vis{border-left:0;border-top:1px solid var(--border-default);padding-left:0;padding-top:18px}}
+
+  /* --- Search capabilities block --- */
+  .searchcap{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:14px 0 4px}
+  .searchcap .sc{border:1px solid var(--border-default);border-radius:var(--radius);padding:16px 18px;background:var(--surface-default)}
+  .searchcap .sc-h{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:620;color:var(--text-default);margin-bottom:8px}
+  .searchcap .sc-i{width:30px;height:30px;border-radius:var(--radius-sm);background:var(--primary-subtle);display:flex;align-items:center;justify-content:center;flex:none}
+  .searchcap .sc p{margin:0;font-size:13.5px;color:var(--text-subtle);line-height:1.5}
+  @media (max-width:560px){.searchcap{grid-template-columns:1fr}}
+
+  /* --- Sales cheat sheet --- */
+  .cheat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0 4px}
+  .cheat-grid .ch{border:1px solid var(--border-default);border-radius:var(--radius);padding:13px 15px;background:var(--surface-default)}
+  .cheat-grid .ch-t{font-size:13.5px;font-weight:650;color:var(--text-default);margin-bottom:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .cheat-grid .ch-d{font-size:12.5px;color:var(--text-subtle);line-height:1.45}
+  .cheat-grid .ch-tag{font-size:10px;font-weight:700;letter-spacing:0.02em;padding:1px 7px;border-radius:999px;text-transform:uppercase}
+  .cheat-grid .ch-tag.live{background:var(--status-active-bg);color:var(--status-active-fg)}
+  .cheat-grid .ch-tag.soon{background:var(--status-warn-bg);color:var(--status-warn-fg)}
+  @media (max-width:900px){.cheat-grid{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:560px){.cheat-grid{grid-template-columns:1fr}}
+  .glossary{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border-default);border:1px solid var(--border-default);border-radius:var(--radius);overflow:hidden;margin:14px 0 4px}
+  .glossary .gl{display:grid;grid-template-columns:130px 1fr;gap:12px;background:var(--surface-default);padding:10px 14px;align-items:baseline}
+  .glossary .gl-k{font-weight:650;font-size:13px;color:var(--primary)}
+  .glossary .gl-v{font-size:12.5px;color:var(--text-subtle);line-height:1.4}
+  @media (max-width:560px){.glossary{grid-template-columns:1fr}.glossary .gl{grid-template-columns:100px 1fr}}
+
+  /* --- Filter types grid --- */
+  .filtergrid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border-default);border:1px solid var(--border-default);border-radius:var(--radius);overflow:hidden;margin:14px 0 4px}
+  .filtergrid .fg{display:grid;grid-template-columns:110px 1fr;gap:10px;background:var(--surface-default);padding:11px 14px;align-items:baseline}
+  .filtergrid .fgk{font-weight:620;font-size:13.5px;color:var(--text-default)}
+  .filtergrid .fgv{font-size:13px;color:var(--text-subtle)}
+  @media (max-width:560px){.filtergrid{grid-template-columns:1fr}.filtergrid .fg{grid-template-columns:96px 1fr}}
+
+  /* --- Lightbox rail key --- */
+  .railkey{display:grid;gap:10px;margin:18px 0 8px}
+  .railkey .rk{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;border:1px solid var(--border-default);border-radius:var(--radius);padding:12px 14px;background:var(--surface-default);font-size:14px;color:var(--text-subtle)}
+  .railkey .rk b{color:var(--text-default);font-weight:620}
+  .railkey .rki{width:34px;height:34px;border-radius:var(--radius-sm);background:var(--surface-muted);display:flex;align-items:center;justify-content:center}
+
+  .foot{margin-top:36px;padding-top:22px;border-top:1px solid var(--border-default);font-size:13px;color:var(--text-tertiary)}
+
+  @media (max-width:560px){
+    h1{font-size:27px} .page{padding:0 16px 64px}
+    .grab{flex-direction:column;gap:12px}
+  }
+  @media print{
+    body{background:#fff} .grab{background:#fff}
+    section{break-inside:avoid}
+  }
+</style>
+</head>
+<body class="app">
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="sb-brand"><span class="dot"></span>Internal Guide · Screendragon DAM</div>
+    <div class="sb-title">The DAM, current state, start to finish</div>
+    <p class="sb-meta">For all Screendragon teams · Orientation, not a spec · ~15 min</p>
+    <nav aria-label="Contents">
+      <ul class="sb-nav">
+        <li><a href="#sec-what"><span class="tn">01</span> What the DAM is</a></li>
+        <li><a href="#sec-different"><span class="tn">02</span> What makes ours different</a></li>
+        <li><a href="#sec-find"><span class="tn">03</span> Where to find things</a></li>
+        <li><a href="#sec-tasks"><span class="tn">04</span> The things you'll actually do</a>
+          <div class="sb-sub">Finding · Previewing · Uploading · Editing · Sharing · Downloading</div></li>
+        <li><a href="#sec-card"><span class="tn">05</span> Reading an asset card</a></li>
+        <li><a href="#sec-dashboard"><span class="tn">06</span> The dashboard</a>
+          <div class="sb-sub">All folders · One folder</div></li>
+        <li><a href="#sec-other"><span class="tn">07</span> Other areas</a>
+          <div class="sb-sub">Collections · Approvals · Downloads · Shared links · Settings</div></li>
+        <li><a href="#sec-notyet" class="nav-notyet"><span class="tn">08</span> Not here yet</a></li>
+        <li><a href="#sec-cheat"><span class="tn">09</span> Sales cheat sheet</a></li>
+      </ul>
+    </nav>
+    <p class="sb-foot">Describes how the product is designed to work. For what's live today, check with the Product team. Not for sharing outside the company without review.</p>
+  </aside>
+
+  <main class="content">
+  <div class="page">
+
+  <!-- ============ 1 ============ -->
+  <section id="sec-what" class="pg">
+    <div class="sec-head"><span class="sec-num">01</span><h2>What the DAM is</h2></div>
+    <p class="sub">Screendragon's DAM is a home for a brand's digital assets — one place to <strong>store, find, control and share</strong> the images, videos, documents and templates a team works with every day. It does the things you'd expect of a serious asset library: fast search across everything, structured tagging (with AI help), and a clean way to hand assets out. What sets it apart is <strong>governance</strong>: the DAM knows what each asset is cleared for and enforces it — the right people get the right version for the right market, and the wrong asset doesn't slip into the wrong place.</p>
+    <p class="sub">Put simply, it's built for teams who can't afford to use an out-of-date logo, an expired image, or an asset that was never cleared for their region. Rights, versions and approvals aren't bolted on — they're the point.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 220" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="220" fill="#faf9f8"/>
+          <!-- central asset -->
+          <rect x="330" y="46" width="180" height="128" rx="10" fill="#ffffff" stroke="#d5cec8" stroke-width="2"/>
+          <rect x="330" y="46" width="180" height="86" rx="10" fill="#e7e2dd"/><rect x="330" y="100" width="180" height="32" fill="#e7e2dd"/>
+          <path d="M356 100 l30 -26 l24 20 l30 -24 l40 30 v20 h-124 z" fill="#cdd3d9"/>
+          <circle cx="372" cy="80" r="11" fill="#d8dde2"/>
+          <!-- badges on asset -->
+          <rect x="342" y="116" width="52" height="15" rx="7.5" fill="#e6f6ec" stroke="#3fbf6f"/><text x="368" y="127" font-size="9" font-weight="600" fill="#1a7a45" text-anchor="middle">In-rights</text>
+          <rect x="342" y="146" width="156" height="9" rx="3" fill="#e3ded9"/>
+          <rect x="342" y="160" width="96" height="7" rx="3" fill="#eeeae6"/>
+          <text x="420" y="200" font-size="11" font-weight="600" fill="#261E1B" text-anchor="middle">One governed asset</text>
+
+          <!-- four capability nodes around it -->
+          <g font-size="11" font-weight="600">
+            <!-- store -->
+            <rect x="70" y="40" width="150" height="42" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+            <circle cx="92" cy="61" r="9" fill="#E4F5FC"/><g stroke="#0B6E8A" stroke-width="1.3" fill="none"><rect x="88" y="57" width="8" height="8" rx="1"/></g>
+            <text x="110" y="58" fill="#261E1B">Store</text><text x="110" y="72" font-size="9" font-weight="400" fill="#938981">every file, one place</text>
+            <!-- find -->
+            <rect x="70" y="138" width="150" height="42" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+            <circle cx="92" cy="159" r="9" fill="#E4F5FC"/><g stroke="#0B6E8A" stroke-width="1.3" fill="none"><circle cx="90" cy="157" r="3.5"/><line x1="93" y1="160" x2="96" y2="163"/></g>
+            <text x="110" y="156" fill="#261E1B">Find</text><text x="110" y="170" font-size="9" font-weight="400" fill="#938981">search across everything</text>
+            <!-- control -->
+            <rect x="620" y="40" width="150" height="42" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+            <circle cx="642" cy="61" r="9" fill="#E4F5FC"/><g stroke="#0B6E8A" stroke-width="1.3" fill="none"><rect x="638" y="59" width="8" height="6" rx="1"/><path d="M640 59 v-1.5 a2 2 0 0 1 4 0 v1.5"/></g>
+            <text x="660" y="58" fill="#261E1B">Control</text><text x="660" y="72" font-size="9" font-weight="400" fill="#938981">rights, enforced</text>
+            <!-- share -->
+            <rect x="620" y="138" width="150" height="42" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+            <circle cx="642" cy="159" r="9" fill="#E4F5FC"/><g stroke="#0B6E8A" stroke-width="1.3" fill="none"><circle cx="639" cy="156" r="1.6"/><circle cx="645" cy="153" r="1.6"/><circle cx="645" cy="162" r="1.6"/><path d="M640.5 157 L643.5 154 M640.5 158 L643.5 161"/></g>
+            <text x="660" y="156" fill="#261E1B">Share</text><text x="660" y="170" font-size="9" font-weight="400" fill="#938981">safely, tracked</text>
+          </g>
+          <!-- connectors -->
+          <g stroke="#d5cec8" stroke-width="1.2" stroke-dasharray="3 3" fill="none">
+            <path d="M220 61 L330 80"/><path d="M220 159 L330 120"/>
+            <path d="M620 61 L510 80"/><path d="M620 159 L510 120"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>The idea in one picture.</b> A single asset that carries its own rights and history — so the DAM can store it, help you find it, control how it's used, and share it safely, all from one governed object.</figcaption>
+    </figure>
+    <div class="note">
+      <span class="lbl">The elevator pitch</span>
+      A brand asset library that doesn't just store files — it keeps them <b>on-brand, in-rights and up to date</b>. Teams find the right asset in seconds, always get a version they're allowed to use, and share it safely inside or outside the business, with every share tracked.
+    </div>
+    <div class="note warn">
+      <span class="lbl">Where it's heading — worth flagging</span>
+      The DAM is designed to plug into Screendragon's Unity workflow platform, so an asset stays connected to the work that produced and approved it. That integration is our biggest long-term differentiator, but it isn't fully built or live yet — it lands in a future release. Before positioning it to a client as available today, <b>check with the Product team</b> for current status.
+    </div>
+  </section>
+
+  <section id="sec-different" class="pg">
+    <div class="sec-head"><span class="sec-num">02</span><h2>What makes ours different</h2></div>
+    <p class="sub">Most of what a DAM does — storage, search, tags — every product has. Those things are expected; they don't set anything apart. Three things make ours different. Two are live and working today; the third is where our Unity integration will take it, and is flagged accordingly.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 200" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="200" fill="#faf9f8"/>
+          <!-- LEFT: standalone library -->
+          <text x="60" y="34" font-size="11" font-weight="700" fill="#938981">A STANDALONE LIBRARY</text>
+          <rect x="60" y="46" width="120" height="90" rx="8" fill="#ffffff" stroke="#e3ded9"/><rect x="60" y="46" width="120" height="60" rx="8" fill="#e7e2dd"/><path d="M78 106 l22 -18 l16 12 l20 -14 l26 20 v0 h-84 z" fill="#cdd3d9"/>
+          <text x="120" y="128" font-size="9" fill="#6b625c" text-anchor="middle">the asset</text>
+          <!-- arrow to download -->
+          <path d="M188 91 L250 91" stroke="#938981" stroke-width="1.4" fill="none"/><path d="M246 87 l4 4 l-4 4" stroke="#938981" stroke-width="1.4" fill="none"/>
+          <text x="219" y="82" font-size="9" fill="#938981" text-anchor="middle">download</text>
+          <!-- after: blind -->
+          <rect x="258" y="52" width="120" height="78" rx="8" fill="#fdf0f0" stroke="#e9c4c4" stroke-dasharray="4 3"/>
+          <text x="318" y="88" font-size="10" font-weight="600" fill="#b02a2a" text-anchor="middle">out in the wild</text>
+          <text x="318" y="104" font-size="9" fill="#9a6060" text-anchor="middle">no control after this</text>
+
+          <!-- divider -->
+          <line x1="418" y1="30" x2="418" y2="170" stroke="#e3ded9"/>
+
+          <!-- RIGHT: ours -->
+          <text x="460" y="34" font-size="11" font-weight="700" fill="#1a7a45">OURS</text>
+          <rect x="460" y="46" width="120" height="90" rx="8" fill="#ffffff" stroke="#3fbf6f" stroke-width="1.5"/><rect x="460" y="46" width="120" height="60" rx="8" fill="#e7e2dd"/><path d="M478 106 l22 -18 l16 12 l20 -14 l26 20 v0 h-84 z" fill="#cdd3d9"/>
+          <rect x="470" y="114" width="46" height="14" rx="7" fill="#e6f6ec" stroke="#3fbf6f"/><text x="493" y="124" font-size="8" font-weight="600" fill="#1a7a45" text-anchor="middle">governed</text>
+          <!-- rights travel with it -->
+          <path d="M588 91 L650 91" stroke="#1a7a45" stroke-width="1.4" fill="none"/><path d="M646 87 l4 4 l-4 4" stroke="#1a7a45" stroke-width="1.4" fill="none"/>
+          <text x="619" y="82" font-size="9" fill="#1a7a45" text-anchor="middle">used anywhere</text>
+          <rect x="658" y="52" width="120" height="78" rx="8" fill="#eef7f1" stroke="#a9d9bd"/>
+          <g stroke="#1a7a45" stroke-width="1.2" fill="none"><rect x="676" y="78" width="10" height="8" rx="1.5"/><path d="M678 78 v-2 a3 3 0 0 1 6 0"/></g>
+          <text x="718" y="84" font-size="10" font-weight="600" fill="#1a7a45" text-anchor="middle">rights travel</text>
+          <text x="718" y="99" font-size="9" fill="#4a7a5a" text-anchor="middle">with the asset</text>
+        </svg>
+      </div>
+      <figcaption><b>The core difference.</b> A standalone library controls an asset only up to download — then it's blind. Ours attaches rights to the asset itself, so control travels with the file wherever it goes.</figcaption>
+    </figure>
+
+    <div class="diffs">
+      <div class="diff">
+        <div class="h"><span class="mk"></span>Rights that actually stop misuse</div>
+        <p>A basic library controls an asset up to the moment it's downloaded, then it's blind. Ours governs the asset itself: rights, territories, channels and expiry are attached to the file, and the DAM enforces them — it hands out the version you're allowed and holds back the ones you're not. Enforcement isn't a label on the screen; it's a real gate the file has to pass. <em>Live today.</em></p>
+      </div>
+      <div class="diff">
+        <div class="h"><span class="mk"></span>AI tagging you can trust</div>
+        <p>Auto-tagging itself is ordinary — everyone has it. What's ours is that <strong>every tag remembers where it came from</strong>: machine-suggested or human-added, and both if both. You can see it, confirm it, filter by it, or remove it in bulk. The value isn't the tags; it's that machine-made metadata stays governable. <em>Live today.</em></p>
+        <p style="margin-top:10px;font-size:13.5px;color:var(--text-subtle);border-top:1px solid var(--border-default);padding-top:10px"><strong>Worth being precise about:</strong> today the AI tags come from a generic image-recognition service (AWS Rekognition) — good general labels, but it can't yet be trained on your brand's own taxonomy or tuned by an agent. Making it brand-trainable is planned but not yet scoped; check with the Product team before positioning it.</p>
+      </div>
+      <div class="diff flagged">
+        <div class="h"><span class="mk"></span>History that travels with the file <span class="soon">Unity — coming</span></div>
+        <p>The bigger prize: when an asset comes out of an approved Screendragon workflow, it will carry a frozen record of <strong>what was approved, by whom, and when</strong> — history that stays attached for the asset's whole life, even if the original job is deleted. A pure-play DAM has no workflow to inherit this from. This depends on the Unity integration, which isn't live yet — <b>check with the Product team</b> before positioning it as available.</p>
+      </div>
+    </div>
+
+    <div class="note warn">
+      <span class="lbl">One thing to keep in mind</span>
+      This guide describes how the product is designed to work — not everything is finished today, and the deepest workflow features depend on the Unity integration, which is still being built. Before promising any of it to a customer or partner, <strong>check with the Product team</strong> for what's live right now.
+    </div>
+  </section>
+
+  <section id="sec-find" class="pg">
+    <div class="sec-head"><span class="sec-num">03</span><h2>Where to find things</h2></div>
+    <p class="sub">The icons down the left-hand rail jump between the main areas of the DAM. Here's what each one is for.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 108" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="108" fill="#faf9f8"/>
+          <!-- the rail -->
+          <rect x="40" y="16" width="46" height="76" rx="8" fill="#0d5f63"/>
+          <!-- icons stacked -->
+          <g fill="#ffffff">
+            <rect x="55" y="26" width="16" height="14" rx="2" opacity="0.9"/>
+            <g opacity="0.7"><rect x="56" y="46" width="14" height="3" rx="1.5"/><rect x="56" y="51" width="14" height="3" rx="1.5"/><rect x="56" y="56" width="14" height="3" rx="1.5"/></g>
+            <rect x="55" y="64" width="16" height="12" rx="2" opacity="0.7"/>
+            <circle cx="63" cy="84" r="3" opacity="0.7"/>
+          </g>
+          <!-- callout that these map to the areas -->
+          <path d="M86 54 L150 54" stroke="#0B6E8A" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/>
+          <circle cx="150" cy="54" r="3" fill="#0B6E8A"/>
+          <text x="166" y="44" font-size="12.5" font-weight="640" fill="#261E1B">Always there, down the left</text>
+          <text x="166" y="62" font-size="11.5" fill="#6b625c">One click takes you to any area below — the rail stays put wherever you are in the DAM.</text>
+          <!-- small area dots -->
+          <g>
+            <circle cx="172" cy="84" r="4" fill="#006B5C"/><circle cx="196" cy="84" r="4" fill="#0B6E8A"/><circle cx="220" cy="84" r="4" fill="#29A383"/><circle cx="244" cy="84" r="4" fill="#e59a2e"/><circle cx="268" cy="84" r="4" fill="#00A2C7"/><circle cx="292" cy="84" r="4" fill="#5B5BD6"/><circle cx="316" cy="84" r="4" fill="#938981"/>
+            <text x="330" y="88" font-size="10" fill="#938981">the seven areas</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>The left-hand rail.</b> A persistent strip of icons that jumps you between the DAM's main areas — the colour-coded cards below map to each one.</figcaption>
+    </figure>
+
+    <div class="navmap">
+      <a class="cell" href="#sub-library" style="--acc:#0B6E8A"><div class="nm">Library</div><p class="nd">Every asset, organised in folders. Folders are the permission boundary and the main way to browse; search and filters live here (4.1).</p></a>
+      <a class="cell" href="#sec-dashboard" style="--acc:#006B5C"><div class="nm">Dashboard</div><p class="nd">Your landing view — widgets for folders, collections and recent activity, scoped to everything or one folder (6).</p></a>
+      <a class="cell" href="#sub-collections" style="--acc:#29A383"><div class="nm">Collections</div><p class="nd">Hand-picked sets that cut across folders — the thing you share, internally or by external link (7.1).</p></a>
+      <a class="cell" href="#sub-approvals" style="--acc:#e59a2e"><div class="nm">Access approvals</div><p class="nd">The queue for approving requests to reach restricted assets (7.2).</p></a>
+      <a class="cell" href="#sub-downloads" style="--acc:#00A2C7"><div class="nm">Downloads</div><p class="nd">Your download queue and history, with re-download (7.3).</p></a>
+      <a class="cell" href="#sub-sharedlinks" style="--acc:#5B5BD6"><div class="nm">Shared links</div><p class="nd">Every external link in one place, to audit or revoke (7.4).</p></a>
+      <a class="cell" href="#sub-settings" style="--acc:#938981"><div class="nm">Settings</div><p class="nd">The admin area — rights defaults, tags, dashboard, uploads and more (7.5). Mostly for admins.</p></a>
+    </div>
+  </section>
+
+  <section id="sec-tasks" class="pg">
+    <div class="sec-head"><span class="sec-num">04</span><h2>The things you'll actually do</h2></div>
+    <p class="sub">Almost all DAM use comes down to a handful of everyday tasks. Learn these and you can work in the product.</p>
+
+    <div class="tasks">
+      <div class="task"><div class="n">1</div><div class="body"><div class="t">Find an asset</div><p class="d">Search from the top bar for anything — a filename, a tag, words <em>inside</em> a document or image. Then narrow the results with filters down the left: file type, rights state, date, who uploaded it.</p></div></div>
+      <div class="task"><div class="n">2</div><div class="body"><div class="t">Upload an asset</div><p class="d">Drag files in. They start uploading immediately while you add tags and details. The DAM can read structure straight from a filename and suggest tags automatically — so good metadata lands without much typing.</p></div></div>
+      <div class="task"><div class="n">3</div><div class="body"><div class="t">Edit an asset</div><p class="d">Change an asset's details or rights after upload — one file at a time, or many at once. Select a batch and the same change applies across all of them.</p></div></div>
+      <div class="task"><div class="n">4</div><div class="body"><div class="t">Share an asset</div><p class="d">Share inside the platform with a colleague, or send an external link to someone with no account. External links are locked down by default: they expire, need email verification, and don't allow download unless you switch it on.</p></div></div>
+      <div class="task"><div class="n">5</div><div class="body"><div class="t">Download the right version</div><p class="d">Download gives you the best version your rights allow. Download&nbsp;as opens a picker for a specific size, format or channel crop — and only offers crops the asset is actually licensed for.</p></div></div>
+      <div class="task"><div class="n">6</div><div class="body"><div class="t">Check an asset's rights &amp; status</div><p class="d">Every asset shows its state on the card and in the full view: is it live, expired, embargoed; which regions and channels it's cleared for; who owns it. If an action isn't allowed, the product tells you why rather than hiding it.</p></div></div>
+    </div>
+
+    <p class="sub">Here's each one on screen.</p>
+
+    <h3 id="sub-library">4.1 &nbsp;Finding an asset — the library</h3>
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 520" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="520" fill="#faf9f8"/>
+
+          <!-- left icon rail -->
+          <rect x="0" y="0" width="30" height="520" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff" opacity="0.55">
+            <rect x="8" y="52" width="14" height="12" rx="2"/>
+            <rect x="8" y="80" width="14" height="12" rx="2" opacity="1"/>
+            <rect x="8" y="108" width="14" height="12" rx="2"/>
+            <rect x="8" y="136" width="14" height="12" rx="2"/>
+          </g>
+
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="46" fill="#ffffff" stroke="#e3ded9" stroke-width="1"/>
+          <text x="46" y="27" font-size="12" font-weight="600" fill="#6b625c">Home</text>
+          <text x="86" y="27" font-size="12" fill="#938981">/ DAM /</text>
+          <text x="132" y="27" font-size="12" font-weight="600" fill="#261E1B">Summer Campaign 2026</text>
+
+          <!-- search bar -->
+          <rect x="46" y="58" width="300" height="30" rx="6" fill="#ffffff" stroke="#d5cec8" stroke-width="1"/>
+          <circle cx="63" cy="73" r="5" fill="none" stroke="#938981" stroke-width="1.5"/><line x1="67" y1="77" x2="71" y2="81" stroke="#938981" stroke-width="1.5"/>
+          <text x="80" y="77" font-size="11.5" fill="#938981">Search Summer Campaign 2026</text>
+
+          <!-- results + view toggles + actions -->
+          <text x="470" y="77" font-size="11.5" font-weight="600" fill="#6b625c">705 Results</text>
+          <rect x="560" y="58" width="26" height="30" rx="5" fill="#f2efed" stroke="#d5cec8"/>
+          <rect x="588" y="58" width="26" height="30" rx="5" fill="#ffffff" stroke="#d5cec8"/>
+          <rect x="616" y="58" width="26" height="30" rx="5" fill="#ffffff" stroke="#d5cec8"/>
+          <rect x="656" y="58" width="60" height="30" rx="6" fill="#ffffff" stroke="#0B6E8A" stroke-width="1.2"/><text x="686" y="77" font-size="11" font-weight="600" fill="#0B6E8A" text-anchor="middle">Queue</text>
+          <rect x="724" y="58" width="70" height="30" rx="6" fill="#0B6E8A"/><text x="759" y="77" font-size="11" font-weight="600" fill="#ffffff" text-anchor="middle">Upload</text>
+
+          <!-- filter panel -->
+          <rect x="46" y="104" width="196" height="400" rx="8" fill="#ffffff" stroke="#e3ded9" stroke-width="1"/>
+          <text x="60" y="126" font-size="12.5" font-weight="700" fill="#261E1B">Filters</text>
+          <line x1="60" y1="138" x2="228" y2="138" stroke="#f2efed"/>
+
+          <!-- Attributes group expanded -->
+          <rect x="52" y="144" width="184" height="98" rx="6" fill="#E4F5FC" stroke="#0B6E8A" stroke-width="1.2"/>
+          <text x="60" y="160" font-size="11" font-weight="700" fill="#0a5468">Attributes</text><text x="228" y="160" text-anchor="end" font-size="11" fill="#0a5468">▴</text>
+          <g font-size="10" fill="#3a4a52">
+            <text x="60" y="176" font-weight="600" fill="#26535f">Orientation</text>
+            <rect x="66" y="182" width="9" height="9" rx="2" fill="#fff" stroke="#7fb8cc"/><text x="82" y="190">Landscape <tspan fill="#7a97a2">(159)</tspan></text>
+            <rect x="66" y="196" width="9" height="9" rx="2" fill="#fff" stroke="#7fb8cc"/><text x="82" y="204">Portrait <tspan fill="#7a97a2">(36)</tspan></text>
+            <text x="60" y="222" font-weight="600" fill="#26535f">Product Level</text>
+            <rect x="66" y="228" width="9" height="9" rx="2" fill="#fff" stroke="#7fb8cc"/><text x="82" y="236">Premium <tspan fill="#7a97a2">(48)</tspan></text>
+          </g>
+
+          <!-- Tags group expanded -->
+          <rect x="52" y="248" width="184" height="86" rx="6" fill="#E4F5FC" stroke="#0B6E8A" stroke-width="1.2"/>
+          <text x="60" y="264" font-size="11" font-weight="700" fill="#0a5468">Tags</text><text x="228" y="264" text-anchor="end" font-size="11" fill="#0a5468">▴</text>
+          <!-- example tag chips -->
+          <g font-size="9">
+            <rect x="60" y="272" width="46" height="17" rx="8.5" fill="#fff" stroke="#c3d9e1"/><text x="83" y="284" text-anchor="middle" fill="#3a4a52">Mountain</text>
+            <rect x="110" y="272" width="34" height="17" rx="8.5" fill="#fff" stroke="#c3d9e1"/><text x="127" y="284" text-anchor="middle" fill="#3a4a52">Lake</text>
+            <rect x="148" y="272" width="40" height="17" rx="8.5" fill="#fff" stroke="#c3d9e1"/><text x="168" y="284" text-anchor="middle" fill="#3a4a52">Water</text>
+            <!-- AI-marked chip -->
+            <rect x="60" y="294" width="62" height="17" rx="8.5" fill="#d7edf5" stroke="#7fb8cc"/>
+            <path d="M68 302 l1.4 -3 l1.4 3 l3 1.4 l-3 1.4 l-1.4 3 l-1.4 -3 l-3 -1.4 z" fill="#0B6E8A"/>
+            <text x="92" y="306" text-anchor="middle" fill="#0a5468">Scenery</text>
+            <rect x="126" y="294" width="58" height="17" rx="8.5" fill="#d7edf5" stroke="#7fb8cc"/>
+            <path d="M134 302 l1.4 -3 l1.4 3 l3 1.4 l-3 1.4 l-1.4 3 l-1.4 -3 l-3 -1.4 z" fill="#0B6E8A"/>
+            <text x="157" y="306" text-anchor="middle" fill="#0a5468">Peak</text>
+            <text x="60" y="327" font-size="8.5" font-style="italic" fill="#7a97a2">◆ = AI-suggested</text>
+          </g>
+
+          <!-- remaining groups collapsed -->
+          <g font-size="11" fill="#6b625c">
+            <text x="60" y="356" font-weight="600" fill="#261E1B">File type</text><text x="228" y="356" text-anchor="end">▾</text>
+            <text x="60" y="380" font-weight="600" fill="#261E1B">Rights state</text><text x="228" y="380" text-anchor="end">▾</text>
+            <text x="60" y="404" font-weight="600" fill="#261E1B">Dimensions</text><text x="228" y="404" text-anchor="end">▾</text>
+            <text x="60" y="428" font-weight="600" fill="#261E1B">Expiry</text><text x="228" y="428" text-anchor="end">▾</text>
+            <text x="60" y="452" font-weight="600" fill="#261E1B">Dates &amp; people</text><text x="228" y="452" text-anchor="end">▾</text>
+          </g>
+
+          <!-- results grid: 3 cards -->
+          <!-- card 1: draft -->
+          <g>
+            <rect x="260" y="104" width="176" height="150" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="260" y="104" width="176" height="104" rx="6" fill="#e7e2dd"/>
+            <rect x="260" y="150" width="176" height="58" fill="#e7e2dd"/>
+            <rect x="270" y="188" width="52" height="16" rx="8" fill="#f2efed" stroke="#d5cec8"/><circle cx="279" cy="196" r="2.5" fill="#938981"/><text x="292" y="200" font-size="9" font-weight="600" fill="#6b625c">Draft</text>
+            <rect x="404" y="188" width="24" height="14" rx="3" fill="#6b625c"/><text x="416" y="199" font-size="8" font-weight="600" fill="#fff" text-anchor="middle">JPG</text>
+            <text x="270" y="228" font-size="10" font-weight="600" fill="#261E1B">summer26_hero_16x9…</text>
+            <text x="270" y="243" font-size="9" fill="#938981">Today</text>
+          </g>
+          <!-- card 2: expired -->
+          <g>
+            <rect x="446" y="104" width="176" height="150" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="446" y="104" width="176" height="104" rx="6" fill="#cdd8d0"/>
+            <rect x="446" y="150" width="176" height="58" fill="#cdd8d0"/>
+            <rect x="456" y="188" width="60" height="16" rx="8" fill="#fdecec" stroke="#e05050"/><circle cx="465" cy="196" r="2.5" fill="#b02a2a"/><text x="478" y="200" font-size="9" font-weight="600" fill="#b02a2a">Expired</text>
+            <rect x="590" y="188" width="24" height="14" rx="3" fill="#6b625c"/><text x="602" y="199" font-size="8" font-weight="600" fill="#fff" text-anchor="middle">JPG</text>
+            <text x="456" y="228" font-size="10" font-weight="600" fill="#261E1B">Image44</text>
+            <text x="456" y="243" font-size="9" fill="#938981">3 days ago</text>
+          </g>
+          <!-- card 3: embargoed -->
+          <g>
+            <rect x="632" y="104" width="176" height="150" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="632" y="104" width="176" height="104" rx="6" fill="#c7d6c4"/>
+            <rect x="632" y="150" width="176" height="58" fill="#c7d6c4"/>
+            <rect x="642" y="188" width="74" height="16" rx="8" fill="#fdeede" stroke="#e59a2e"/><circle cx="651" cy="196" r="2.5" fill="#8a5300"/><text x="664" y="200" font-size="9" font-weight="600" fill="#8a5300">Embargoed</text>
+            <rect x="776" y="188" width="24" height="14" rx="3" fill="#6b625c"/><text x="788" y="199" font-size="8" font-weight="600" fill="#fff" text-anchor="middle">JPG</text>
+            <text x="642" y="228" font-size="10" font-weight="600" fill="#261E1B">Image49</text>
+            <text x="642" y="243" font-size="9" fill="#938981">3 days ago</text>
+          </g>
+          <!-- second row hint -->
+          <rect x="260" y="266" width="176" height="120" rx="6" fill="#ffffff" stroke="#eeeae6"/><rect x="260" y="266" width="176" height="94" rx="6" fill="#eef0f2"/>
+          <rect x="446" y="266" width="176" height="120" rx="6" fill="#ffffff" stroke="#eeeae6"/><rect x="446" y="266" width="176" height="94" rx="6" fill="#eef0f2"/>
+          <rect x="632" y="266" width="176" height="120" rx="6" fill="#ffffff" stroke="#eeeae6"/><rect x="632" y="266" width="176" height="94" rx="6" fill="#eef0f2"/>
+
+          <!-- annotations -->
+          <g font-size="12">
+            <!-- search callout: connect cleanly up to the search bar -->
+            <rect x="300" y="430" width="230" height="34" rx="5" fill="#E4F5FC" stroke="#0B6E8A" stroke-width="1"/>
+            <text x="310" y="446" font-weight="640" fill="#0B6E8A">Search — scoped to this event</text>
+            <text x="310" y="459" font-size="10.5" fill="#6b625c">Finds filenames, tags, and text inside files.</text>
+            <path d="M300 447 L272 447 L272 73 L346 73" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="346" cy="73" r="2.5" fill="#0B6E8A"/>
+
+            <!-- filters callout: connect to the Attributes + Tags facets -->
+            <rect x="556" y="384" width="252" height="76" rx="5" fill="#E4F5FC" stroke="#0B6E8A" stroke-width="1"/>
+            <text x="566" y="401" font-weight="640" fill="#0B6E8A">Attributes and Tags</text>
+            <text x="566" y="416" font-size="10.5" fill="#6b625c">Two kinds of label you can filter by.</text>
+            <text x="566" y="429" font-size="10.5" fill="#6b625c">Attributes are fixed, admin-set fields; tags are</text>
+            <text x="566" y="442" font-size="10.5" fill="#6b625c">free-form keywords — some added by the AI.</text>
+            <text x="566" y="455" font-size="9.5" font-style="italic" fill="#938981">See the note below.</text>
+            <path d="M556 422 L245 422 L245 170 L234 170" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="234" cy="170" r="2.5" fill="#0B6E8A"/>
+
+            <!-- status callout -->
+            <rect x="300" y="472" width="496" height="34" rx="5" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="310" y="488" font-size="11" font-weight="640" fill="#261E1B">Status shows on the card:</text>
+            <text x="310" y="501" font-size="10.5" fill="#6b625c">Draft (grey) · Expired (red) · Embargoed (amber) — visible at a glance, no need to open the file.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>The library.</b> Search across the top, filters down the left, results as cards. Each card carries the asset's status so you can read the shelf without opening anything.</figcaption>
+    </figure>
+
+    <p class="sub" style="margin-top:22px"><b>Search is smarter than a filename match.</b> Two things worth knowing about what it can find:</p>
+    <div class="searchcap">
+      <div class="sc">
+        <div class="sc-h"><span class="sc-i" aria-hidden="true"><svg viewBox="0 0 20 20" width="16" height="16"><g stroke="#0B6E8A" stroke-width="1.5" fill="none"><path d="M4 4 h9 M4 8 h9 M4 12 h6"/><circle cx="13" cy="13" r="3.2"/><line x1="15.3" y1="15.3" x2="18" y2="18"/></g></svg></span>Finds text <em>inside</em> files (OCR)</div>
+        <p>The DAM reads the words inside images and documents and indexes them, so a search can match text that lives <em>in</em> an asset — not just its filename or tags. When a result matches this way, it's flagged as matching extracted text, and the matched term is highlighted so you can see why it came up.</p>
+      </div>
+      <div class="sc">
+        <div class="sc-h"><span class="sc-i" aria-hidden="true"><svg viewBox="0 0 20 20" width="16" height="16"><g stroke="#0B6E8A" stroke-width="1.5" fill="none"><path d="M6 3 L6.9 6.1 L10 7 L6.9 7.9 L6 11 L5.1 7.9 L2 7 L5.1 6.1 Z"/><path d="M14 11 l0.6 2 l2 0.6 l-2 0.6 l-0.6 2 l-0.6 -2 l-2 -0.6 l2 -0.6 Z"/></g></svg></span>Smart, AI-assisted search</div>
+        <p>One search covers everything at once — metadata, attributes, tags <em>and</em> the text found inside files. And from any asset's lightbox, <b>Similar</b> finds visually related assets by content, not keywords, each with a match score. So you can search by what an asset says, how it's labelled, or what it looks like.</p>
+      </div>
+    </div>
+
+    <div class="twocol">
+      <div class="tc-text">
+        <p class="tclead"><b>Two kinds of label — and why it matters when you search.</b></p>
+        <p class="sub"><b>Attributes</b> are structured fields your admin sets up, with fixed values to choose from — things like Country, Orientation or Product Level. They're consistent because everyone picks from the same list.</p>
+        <p class="sub"><b>Tags</b> are free-form keywords. People add them, and the DAM's AI adds them too. That's the part worth knowing: a small marker on a tag tells you it was <b>AI-suggested</b> rather than added by a person — so you can see where a label came from and decide whether to trust it, keep it, or filter it out. There's no separate "AI" filter and no AI section; AI is simply a property of the tag it produced.</p>
+        <p class="sub" style="font-size:13px;color:var(--text-tertiary)">The AI tags currently come from a generic image-recognition service (AWS Rekognition) — general labels, not yet trainable on your own brand taxonomy. Brand-trainable tagging is planned but unscoped.</p>
+      </div>
+      <div class="tc-vis">
+        <div class="chiprow">
+          <span class="dchip">Mountain</span>
+          <span class="dchip ai"><svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 1 L7 5 L11 6 L7 7 L6 11 L5 7 L1 6 L5 5 Z" fill="#0B6E8A"/></svg>Landscape</span>
+        </div>
+        <div class="chiplbl"><span>Added by a person</span><span>AI-suggested</span></div>
+      </div>
+    </div>
+
+    <p class="sub" style="margin-top:22px"><b>The full set of filters.</b> The panel groups everything you can narrow a search by. All groups collapse and expand, and the ones you've set show as removable chips above the results.</p>
+    <div class="filtergrid">
+      <div class="fg"><span class="fgk">Attributes</span><span class="fgv">Structured, admin-set fields with fixed values (Country, Orientation, Product Level…).</span></div>
+      <div class="fg"><span class="fgk">Tags</span><span class="fgv">Free-form keywords, human- or AI-added, with the AI marker on the chip.</span></div>
+      <div class="fg"><span class="fgk">File type</span><span class="fgv">Image, vector, video, document, audio.</span></div>
+      <div class="fg"><span class="fgk">Lifecycle</span><span class="fgv">Draft vs published, and whether archived assets are included.</span></div>
+      <div class="fg"><span class="fgk">Orientation</span><span class="fgv">Landscape, portrait, square.</span></div>
+      <div class="fg"><span class="fgk">Dimensions</span><span class="fgv">Size ranges, in preset buckets (e.g. ≥ 2000px).</span></div>
+      <div class="fg"><span class="fgk">Duration</span><span class="fgv">For video and audio — length ranges, in preset buckets.</span></div>
+      <div class="fg"><span class="fgk">Rights state</span><span class="fgv">Active, embargoed or expired.</span></div>
+      <div class="fg"><span class="fgk">Expiry</span><span class="fgv">When rights lapse — already expired, or within a chosen window.</span></div>
+      <div class="fg"><span class="fgk">Dates &amp; people</span><span class="fgv">Upload date and who uploaded an asset.</span></div>
+    </div>
+    <p class="sub" style="font-size:13.5px;color:var(--text-tertiary);margin-top:10px">Set a filter combination you'll reuse? <b>Save it</b> as a named filter and re-apply it in one click.</p>
+
+    <h3>4.2 &nbsp;Previewing an asset — Lightbox</h3>
+    <p class="sub">Click any asset and it opens in the lightbox — a full-screen viewer that steps back so the asset itself is the hero. Everything about that asset lives in one pull-out rail on the right, organised into five tabs. You never leave the viewer to see an asset's details, rights, or related files.</p>
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 560" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="560" fill="#faf9f8"/>
+
+          <!-- lightbox shell -->
+          <rect x="20" y="20" width="800" height="520" rx="10" fill="#ffffff" stroke="#d5cec8" stroke-width="1.5"/>
+
+          <!-- top bar -->
+          <g>
+            <text x="42" y="49" font-size="13" fill="#6b625c">‹</text>
+            <text x="60" y="49" font-size="13" fill="#6b625c">›</text>
+            <text x="82" y="49" font-size="12.5" font-weight="640" fill="#261E1B">Image52.jpg</text>
+            <rect x="560" y="32" width="96" height="26" rx="6" fill="#ffffff" stroke="#0B6E8A" stroke-width="1.1"/><text x="608" y="49" font-size="10.5" font-weight="600" fill="#0B6E8A" text-anchor="middle">Add to Queue</text>
+            <rect x="664" y="32" width="86" height="26" rx="6" fill="#0B6E8A"/><text x="707" y="49" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">Download</text>
+            <text x="768" y="49" font-size="13" fill="#938981">···</text>
+            <text x="798" y="50" font-size="14" fill="#938981">×</text>
+          </g>
+          <line x1="20" y1="70" x2="820" y2="70" stroke="#eeeae6"/>
+
+          <!-- image hero area -->
+          <rect x="20" y="70" width="560" height="428" fill="#eef0f2"/>
+          <rect x="40" y="150" width="520" height="270" rx="4" fill="#cdd6dd"/>
+          <path d="M40 360 l120 -110 l90 70 l110 -90 l200 130 v60 h-520 z" fill="#b9c4cc"/>
+          <circle cx="150" cy="210" r="26" fill="#c9d2d9"/>
+          <!-- reflection hint -->
+          <rect x="40" y="420" width="520" height="0" fill="none"/>
+
+          <!-- bottom keyboard bar -->
+          <line x1="20" y1="498" x2="580" y2="498" stroke="#eeeae6"/>
+          <g font-size="10.5" fill="#6b625c">
+            <rect x="40" y="510" width="16" height="16" rx="3" fill="#faf9f8" stroke="#e3ded9"/><text x="48" y="521" text-anchor="middle" fill="#938981">←</text>
+            <rect x="60" y="510" width="16" height="16" rx="3" fill="#faf9f8" stroke="#e3ded9"/><text x="68" y="521" text-anchor="middle" fill="#938981">→</text>
+            <text x="84" y="522">Assets</text>
+            <rect x="132" y="510" width="16" height="16" rx="3" fill="#faf9f8" stroke="#e3ded9"/><text x="140" y="521" text-anchor="middle" fill="#938981">−</text>
+            <rect x="152" y="510" width="16" height="16" rx="3" fill="#faf9f8" stroke="#e3ded9"/><text x="160" y="521" text-anchor="middle" fill="#938981">+</text>
+            <text x="176" y="522">Zoom</text>
+            <text x="222" y="522">Fit</text>
+            <rect x="248" y="510" width="24" height="16" rx="3" fill="#faf9f8" stroke="#e3ded9"/><text x="260" y="521" text-anchor="middle" font-size="8.5" fill="#938981">ESC</text>
+            <text x="280" y="522">Close</text>
+          </g>
+          <text x="560" y="522" font-size="10.5" fill="#6b625c" text-anchor="end"><tspan font-weight="700" fill="#261E1B">7</tspan> of 120</text>
+
+          <!-- rail tab strip -->
+          <line x1="580" y1="70" x2="580" y2="498" stroke="#eeeae6"/>
+          <line x1="628" y1="70" x2="628" y2="540" stroke="#eeeae6"/>
+          <g text-anchor="middle">
+            <!-- collapse -->
+            <rect x="594" y="82" width="20" height="18" rx="3" fill="none" stroke="#938981" stroke-width="1.1"/><line x1="606" y1="82" x2="606" y2="100" stroke="#938981" stroke-width="1.1"/>
+            <!-- Details (active) -->
+            <rect x="588" y="112" width="32" height="30" rx="6" fill="#E4F5FC"/>
+            <circle cx="604" cy="127" r="7" fill="none" stroke="#0B6E8A" stroke-width="1.3"/><text x="604" y="131" font-size="9" fill="#0B6E8A">i</text>
+            <!-- Attributes (tag-tree: parent node branching to two) -->
+            <g stroke="#8c847d" stroke-width="1.2" fill="none">
+              <circle cx="597" cy="170" r="2.4"/>
+              <circle cx="612" cy="164" r="2.4"/>
+              <circle cx="612" cy="176" r="2.4"/>
+              <path d="M599.2 169 L609.8 165 M599.2 171 L609.8 175"/>
+            </g>
+            <!-- Similar -->
+            <path d="M594 210 q4 -5 8 0 t8 0" stroke="#8c847d" stroke-width="1.3" fill="none"/><path d="M594 216 q4 -5 8 0 t8 0" stroke="#8c847d" stroke-width="1.3" fill="none"/>
+            <!-- Rights (padlock) -->
+            <g stroke="#8c847d" stroke-width="1.2" fill="none"><rect x="598" y="255" width="12" height="9" rx="1.5"/><path d="M600.5 255 v-2.5 a3.5 3.5 0 0 1 7 0"/></g>
+            <!-- Download -->
+            <g stroke="#8c847d" stroke-width="1.3" fill="none"><line x1="604" y1="296" x2="604" y2="306"/><path d="M600 302 l4 4 l4 -4"/><line x1="598" y1="310" x2="610" y2="310"/></g>
+          </g>
+
+          <!-- Details panel (active) -->
+          <text x="644" y="92" font-size="13" font-weight="640" fill="#261E1B">Details</text>
+          <g font-size="9.5">
+            <text x="644" y="116" fill="#938981">Original filename</text><text x="760" y="116" fill="#261E1B">Image52.jpg</text>
+            <text x="644" y="136" fill="#938981">Dimensions</text><text x="760" y="136" fill="#261E1B">2048 × 916 px</text>
+            <text x="644" y="156" fill="#938981">File size</text><text x="760" y="156" fill="#261E1B">1.2 MB</text>
+            <text x="644" y="176" fill="#938981">Uploaded by</text><text x="760" y="176" fill="#261E1B">SD Admin</text>
+            <text x="644" y="196" fill="#938981">Upload date</text><text x="760" y="196" fill="#261E1B">07 Sep 2026</text>
+          </g>
+          <line x1="644" y1="212" x2="808" y2="212" stroke="#f2efed"/>
+          <text x="644" y="230" font-size="9.5" font-weight="600" fill="#261E1B">File metadata <tspan font-weight="400" fill="#938981">· None embedded</tspan></text>
+
+          <!-- ===== annotations ===== -->
+          <g font-size="11.5">
+            <!-- hero thesis -->
+            <rect x="40" y="88" width="220" height="44" rx="6" fill="#ffffff" stroke="#d5cec8" opacity="0.96"/>
+            <text x="52" y="106" font-weight="640" font-size="11.5" fill="#261E1B">The asset is the hero</text>
+            <text x="52" y="120" font-size="10" fill="#6b625c">The viewer recedes; arrow through all 120</text>
+            <text x="52" y="131" font-size="10" fill="#6b625c">results without leaving the lightbox.</text>
+          </g>
+
+          <!-- rail tab callouts, laid down the right margin (but SVG is 840 wide; place them as a stacked key below via foreignObject-free layout) -->
+        </svg>
+      </div>
+      <figcaption><b>The lightbox.</b> A full-screen viewer with one pull-out rail. The rail's five tabs hold everything about the asset — its facts, its metadata, its rights, related files, and download — without ever leaving the view.</figcaption>
+    </figure>
+
+    <div class="railkey">
+      <div class="rk"><span class="rki"><svg viewBox="0 0 20 20" width="17" height="17"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#6b625c" stroke-width="1.4"/><text x="10" y="14" font-size="9" font-family="Inter" fill="#6b625c" text-anchor="middle">i</text></svg></span><div><b>Details</b> — the file facts: filename, dimensions, size, who uploaded it and when, plus a read-only <b>File metadata</b> section (embedded EXIF/IPTC, when present).</div></div>
+      <div class="rk"><span class="rki"><svg viewBox="0 0 20 20" width="17" height="17"><g stroke="#6b625c" stroke-width="1.4" fill="none"><circle cx="5" cy="10" r="2"/><circle cx="14" cy="6" r="2"/><circle cx="14" cy="14" r="2"/><path d="M6.8 9 L12.2 6.6 M6.8 11 L12.2 13.4"/></g></svg></span><div><b>Attributes</b> — the asset's structured attributes and its <b>Tags</b>. AI-suggested tags carry a small marker on the chip, so you can always tell machine-added tags from human ones.</div></div>
+      <div class="rk"><span class="rki"><svg viewBox="0 0 20 20" width="17" height="17"><g stroke="#6b625c" stroke-width="1.4" fill="none"><path d="M3 8 q3 -4 5.5 0 t5.5 0"/><path d="M3 13 q3 -4 5.5 0 t5.5 0"/></g></svg></span><div><b>Similar</b> — visually related assets, each with a match score (84%, 83%…). An asset's rights state travels here too — a restricted result still shows its <b>Expired</b> or <b>Embargoed</b> pill.</div></div>
+      <div class="rk"><span class="rki"><svg viewBox="0 0 20 20" width="17" height="17"><g stroke="#6b625c" stroke-width="1.4" fill="none"><rect x="5" y="9" width="10" height="7.5" rx="1.5"/><path d="M7 9 v-2 a3 3 0 0 1 6 0"/></g></svg></span><div><b>Rights</b> — the asset's rights, read-only, in three groups: <b>time-based</b> (embargo, expiry), <b>licensing</b> (licence type, owner, documentation), and <b>permitted use</b> (territories, channels, audiences). This is where you check what an asset is cleared for before you use it.</div></div>
+      <div class="rk"><span class="rki"><svg viewBox="0 0 20 20" width="17" height="17"><g stroke="#6b625c" stroke-width="1.4" fill="none"><line x1="10" y1="4" x2="10" y2="13"/><path d="M6.5 9.5 L10 13 L13.5 9.5"/><line x1="5" y1="16" x2="15" y2="16"/></g></svg></span><div><b>Download</b> — the same version-and-format picker as Download&nbsp;as, right inside the rail: choose a version tier and one or more channel formats without opening a separate dialog.</div></div>
+    </div>
+
+    <h3>4.3 &nbsp;Uploading — the upload screen</h3>
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 470" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="470" fill="#1c1a18"/>
+
+          <!-- top bar of upload screen -->
+          <g>
+            <circle cx="54" cy="34" r="13" fill="#2b2825"/>
+            <path d="M49 37 l5 -6 l5 6 M54 31 v10" stroke="#9fb9bf" stroke-width="1.5" fill="none"/>
+            <text x="76" y="30" font-size="13" font-weight="640" fill="#ffffff">Uploading 2 files</text>
+            <text x="76" y="45" font-size="11" fill="#8c847d">2 ready</text>
+            <!-- actions -->
+            <rect x="574" y="20" width="96" height="30" rx="6" fill="#2b2825" stroke="#3f3b37"/><text x="622" y="39" font-size="11" font-weight="600" fill="#cfe6ea" text-anchor="middle">Save as draft</text>
+            <rect x="680" y="20" width="110" height="30" rx="6" fill="#0B6E8A"/><text x="735" y="39" font-size="11" font-weight="600" fill="#ffffff" text-anchor="middle">Upload to library</text>
+            <text x="806" y="40" font-size="15" fill="#8c847d">×</text>
+          </g>
+          <line x1="0" y1="64" x2="840" y2="64" stroke="#2b2825"/>
+
+          <!-- left tab strip -->
+          <g font-size="10.5" text-anchor="middle">
+            <!-- Details (active) -->
+            <rect x="14" y="80" width="72" height="46" rx="6" fill="#2b2825"/>
+            <circle cx="50" cy="96" r="8" fill="none" stroke="#cfe6ea" stroke-width="1.3"/><text x="50" y="100" font-size="10" fill="#cfe6ea">i</text>
+            <text x="50" y="118" fill="#ffffff" font-weight="600">Details</text>
+            <!-- Attributes (branching-tags glyph) -->
+            <g stroke="#8c847d" stroke-width="1.3" fill="none">
+              <circle cx="44" cy="145" r="2.4"/><circle cx="56" cy="140" r="2.4"/><circle cx="56" cy="150" r="2.4"/>
+              <path d="M46.2 144 L53.8 141 M46.2 146 L53.8 149"/>
+            </g>
+            <text x="50" y="164" fill="#8c847d">Attributes</text>
+            <!-- Rights (padlock glyph) -->
+            <g stroke="#8c847d" stroke-width="1.3" fill="none">
+              <rect x="45" y="190" width="10" height="8" rx="1.5"/>
+              <path d="M47 190 v-2 a3 3 0 0 1 6 0"/>
+            </g>
+            <text x="50" y="210" fill="#8c847d">Rights</text>
+          </g>
+          <line x1="100" y1="64" x2="100" y2="470" stroke="#2b2825"/>
+
+          <!-- Details panel (active tab content) -->
+          <text x="120" y="98" font-size="14" font-weight="640" fill="#ffffff">Details</text>
+          <text x="120" y="120" font-size="10.5" fill="#8c847d">Description</text>
+          <rect x="120" y="128" width="300" height="72" rx="6" fill="#232120" stroke="#3f3b37"/>
+          <text x="132" y="148" font-size="10.5" fill="#6f6862">Add a description…</text>
+          <line x1="440" y1="64" x2="440" y2="470" stroke="#2b2825"/>
+
+          <!-- file list header -->
+          <text x="470" y="96" font-size="11.5" font-weight="600" fill="#ffffff">1 file selected</text>
+          <text x="560" y="96" font-size="11" fill="#4fa3b8">Clear Selection</text>
+          <rect x="686" y="82" width="120" height="24" rx="5" fill="#3a2422" stroke="#7a3b38"/><text x="746" y="98" font-size="10.5" font-weight="600" fill="#e88a86" text-anchor="middle">Remove from batch</text>
+
+          <!-- file row 1 (selected) -->
+          <rect x="470" y="118" width="336" height="52" rx="8" fill="#20302f" stroke="#2f8a6f" stroke-width="1.5"/>
+          <rect x="482" y="130" width="18" height="18" rx="4" fill="#0B6E8A"/><path d="M486 139 l3 3 l6 -6" stroke="#fff" stroke-width="1.6" fill="none"/>
+          <rect x="508" y="128" width="34" height="34" rx="4" fill="#3a4a52"/>
+          <text x="550" y="140" font-size="11" font-weight="600" fill="#ffffff">1440p-Wallpapers-Free-Download.jpg</text>
+          <text x="550" y="154" font-size="9.5" fill="#8c847d">JPG · 399.1 KB · 2560 × 1440</text>
+          <rect x="726" y="133" width="60" height="18" rx="9" fill="#1f3a2c"/><circle cx="738" cy="142" r="3" fill="#4fbf7f"/><text x="748" y="146" font-size="9.5" font-weight="600" fill="#7bd69e">Ready</text>
+
+          <!-- file row 2 -->
+          <rect x="470" y="180" width="336" height="52" rx="8" fill="#232120" stroke="#3f3b37"/>
+          <rect x="482" y="192" width="18" height="18" rx="4" fill="#232120" stroke="#544f4a"/>
+          <rect x="508" y="190" width="34" height="34" rx="4" fill="#4a4642"/>
+          <text x="550" y="202" font-size="11" font-weight="600" fill="#ffffff">summer26_hero_16x9_v2.jpg</text>
+          <text x="550" y="216" font-size="9.5" fill="#8c847d">JPG · 60.9 KB · 960 × 539</text>
+          <rect x="726" y="195" width="60" height="18" rx="9" fill="#1f3a2c"/><circle cx="738" cy="204" r="3" fill="#4fbf7f"/><text x="748" y="208" font-size="9.5" font-weight="600" fill="#7bd69e">Ready</text>
+
+          <!-- honesty footer -->
+          <line x1="440" y1="424" x2="840" y2="424" stroke="#2b2825"/>
+          <rect x="470" y="434" width="16" height="16" rx="3" fill="#2b2825"/>
+          <text x="470" y="446" font-size="10.5" fill="#c9c2bb"><tspan font-weight="700" fill="#ffffff">Upload to library</tspan> adds 2 assets, available immediately.</text>
+
+          <!-- ===== annotations (on light plates so they read over the dark UI) ===== -->
+          <g font-size="12">
+            <!-- honesty message -->
+            <rect x="120" y="256" width="300" height="70" rx="6" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="132" y="276" font-weight="640" fill="#0B6E8A">Your files are already saved</text>
+            <text x="132" y="292" font-size="10.5" fill="#3a4a52">The upload happens the moment a file appears.</text>
+            <text x="132" y="306" font-size="10.5" fill="#3a4a52">This button doesn't upload — it publishes them to</text>
+            <text x="132" y="319" font-size="10.5" fill="#3a4a52">the library and applies the details you've added.</text>
+            <path d="M300 256 L300 240 L735 240 L735 52" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="735" cy="52" r="2.5" fill="#0B6E8A"/>
+
+            <!-- three tabs -->
+            <rect x="120" y="344" width="300" height="56" rx="6" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="132" y="363" font-weight="640" fill="#261E1B">Three steps, in tabs</text>
+            <text x="132" y="379" font-size="10.5" fill="#6b625c"><tspan font-weight="600">Details</tspan> — name and describe · <tspan font-weight="600">Attributes</tspan> — structured</text>
+            <text x="132" y="392" font-size="10.5" fill="#6b625c">tags · <tspan font-weight="600">Rights</tspan> — licence, territories, channels.</text>
+            <path d="M120 372 L108 372 L108 150 L92 150" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="92" cy="150" r="2.5" fill="#0B6E8A"/>
+
+            <!-- save as draft callout -->
+            <rect x="470" y="256" width="336" height="44" rx="6" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="482" y="275" font-weight="640" fill="#261E1B">Not ready to publish?</text>
+            <text x="482" y="291" font-size="10.5" fill="#6b625c"><tspan font-weight="600">Save as draft</tspan> keeps files out of the library until you finish.</text>
+            <path d="M622 256 L622 52" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="622" cy="52" r="2.5" fill="#0B6E8A"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Uploading.</b> Files upload the moment you drop them, so the screen is really about adding details — description, attributes, rights — before you publish. The button says exactly what it does: it adds the assets to the library.</figcaption>
+    </figure>
+
+    <h3>4.4 &nbsp;Editing an asset</h3>
+    <p class="sub">Once an asset is in the library, you edit it on a dedicated surface. How much you can change depends on whether you're editing <b>one asset</b> or <b>several at once</b> — and the surface adapts to match.</p>
+
+    <p class="sub"><b>Editing a single asset</b> gives you the full set of controls, down the left as tabs: <b>Details</b>, <b>Attributes</b>, <b>Adjustments</b>, <b>Template</b>, <b>Versions</b>, <b>Rights</b> and <b>Access</b>. The asset fills the canvas so you can see what you're working on.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 400" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="400" fill="#1c1a18"/>
+
+          <!-- top bar -->
+          <g>
+            <rect x="40" y="18" width="26" height="26" rx="5" fill="#2b2825"/>
+            <path d="M48 36 l8 -8 l3 3 l-8 8 h-3 z" fill="none" stroke="#9fb9bf" stroke-width="1.3"/>
+            <text x="76" y="30" font-size="13" font-weight="640" fill="#ffffff">Editing Image47</text>
+            <text x="76" y="45" font-size="11" fill="#8c847d">No unsaved changes</text>
+            <rect x="642" y="18" width="94" height="28" rx="6" fill="#2b2825" stroke="#3f3b37"/><path d="M660 32 v6 M657 35 l3 3 l3 -3" stroke="#cfe6ea" stroke-width="1.2" fill="none"/><text x="694" y="36" font-size="10.5" font-weight="600" fill="#cfe6ea" text-anchor="middle">Download</text>
+            <rect x="744" y="18" width="52" height="28" rx="6" fill="#0B6E8A"/><text x="770" y="36" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Save</text>
+            <text x="812" y="37" font-size="15" fill="#8c847d">×</text>
+          </g>
+          <line x1="0" y1="58" x2="840" y2="58" stroke="#2b2825"/>
+
+          <!-- full 7-tab rail -->
+          <g font-size="9.5" text-anchor="middle" fill="#8c847d">
+            <!-- Details -->
+            <circle cx="46" cy="80" r="7" fill="none" stroke="#8c847d" stroke-width="1.2"/><text x="46" y="83" font-size="8">i</text><text x="46" y="100">Details</text>
+            <!-- Attributes -->
+            <g stroke="#8c847d" stroke-width="1.1" fill="none"><circle cx="40" cy="118" r="2"/><circle cx="52" cy="114" r="2"/><circle cx="52" cy="122" r="2"/><path d="M42 117 L50 115 M42 119 L50 121"/></g><text x="46" y="136">Attributes</text>
+            <!-- Adjustments (flagged) -->
+            <g stroke="#8c847d" stroke-width="1.1" fill="none"><rect x="40" y="150" width="12" height="12" rx="1.5"/><path d="M44 150 v12 M40 158 h12"/></g><text x="46" y="176">Adjustments</text>
+            <!-- Template -->
+            <g stroke="#8c847d" stroke-width="1.1" fill="none"><rect x="40" y="188" width="12" height="5" rx="1"/><rect x="40" y="195" width="5" height="7" rx="1"/><rect x="47" y="195" width="5" height="7" rx="1"/></g><text x="46" y="214">Template</text>
+            <!-- Versions (active) -->
+            <rect x="16" y="226" width="60" height="42" rx="6" fill="#123138"/>
+            <g stroke="#4fb0c4" stroke-width="1.2" fill="none"><path d="M40 236 v10 M36 240 h8 M48 234 v10 M52 238 h-8"/></g><text x="46" y="260" fill="#7fd4e4" font-weight="600">Versions</text>
+            <!-- Rights -->
+            <g stroke="#8c847d" stroke-width="1.1" fill="none"><rect x="41" y="282" width="10" height="8" rx="1.5"/><path d="M43 282 v-2 a3 3 0 0 1 6 0"/></g><text x="46" y="304">Rights</text>
+            <!-- Access -->
+            <g stroke="#8c847d" stroke-width="1.1" fill="none"><circle cx="42" cy="320" r="2.4"/><circle cx="50" cy="320" r="2.4"/><path d="M37 330 q5 -4 10 0 M46 330 q3 -3 7 -1"/></g><text x="46" y="342">Access</text>
+          </g>
+          <line x1="92" y1="58" x2="92" y2="400" stroke="#2b2825"/>
+
+          <!-- Versions panel -->
+          <text x="112" y="86" font-size="14" font-weight="640" fill="#ffffff">Versions</text>
+          <text x="112" y="120" font-size="11" font-weight="600" fill="#ffffff">Version 1</text>
+          <text x="112" y="134" font-size="9.5" fill="#8c847d">By SD Admin</text>
+          <text x="300" y="120" font-size="9.5" fill="#8c847d" text-anchor="end">4 days ago</text>
+          <text x="318" y="120" font-size="11" fill="#8c847d" text-anchor="end">···</text>
+          <rect x="112" y="148" width="210" height="30" rx="6" fill="#232120" stroke="#0B6E8A" stroke-width="1.1"/>
+          <path d="M150 166 v-6 M147 163 l3 -3 l3 3" stroke="#4fb0c4" stroke-width="1.2" fill="none"/>
+          <text x="222" y="167" font-size="10.5" font-weight="600" fill="#4fb0c4" text-anchor="middle">Upload New Version</text>
+
+          <!-- asset canvas -->
+          <line x1="340" y1="58" x2="340" y2="400" stroke="#2b2825"/>
+          <rect x="360" y="78" width="456" height="300" rx="6" fill="#2a2622"/>
+          <path d="M360 300 l90 -80 l70 50 l90 -70 l116 90 v88 h-456 z" fill="#3a3530"/>
+          <path d="M600 200 q40 -50 90 0 q30 40 -10 70 q-50 30 -90 -10 q-30 -40 10 -60 z" fill="#4a4038"/>
+          <rect x="360" y="78" width="456" height="80" fill="#33302c" opacity="0.5"/>
+
+          <!-- ===== annotations ===== -->
+          <g font-size="11.5">
+            <!-- versions live -->
+            <rect x="360" y="300" width="248" height="60" rx="6" fill="#E4F5FC" stroke="#0B6E8A" opacity="0.97"/>
+            <text x="372" y="319" font-weight="640" fill="#0B6E8A">Versions — live</text>
+            <text x="372" y="334" font-size="10.5" fill="#3a4a52">Replace an asset with a new file while keeping</text>
+            <text x="372" y="346" font-size="10.5" fill="#3a4a52">the same link and a record of who changed what,</text>
+            <text x="372" y="357" font-size="10.5" fill="#3a4a52">and when. The old versions aren't lost.</text>
+
+            <!-- adjustments flagged -->
+            <rect x="622" y="300" width="196" height="60" rx="6" fill="#fdeede" stroke="#e59a2e" opacity="0.97"/>
+            <text x="634" y="319" font-weight="640" fill="#8a5300">Adjustments — coming</text>
+            <text x="634" y="334" font-size="10" fill="#7a4e12">In-DAM crop, resize and rotate is</text>
+            <text x="634" y="346" font-size="10" fill="#7a4e12">planned, not live yet. Check with</text>
+            <text x="634" y="357" font-size="10" fill="#7a4e12">the Product team.</text>
+            <path d="M622 330 L92 330 L92 172 L76 172" fill="none" stroke="#e59a2e" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="76" cy="172" r="2.5" fill="#e59a2e"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Editing one asset.</b> The full editor — seven tabs down the left, the asset on the canvas. <b>Versions</b> (shown) lets you upload a replacement while keeping the same link and history. <b>Adjustments</b> is in the rail but not live yet.</figcaption>
+    </figure>
+
+    <p class="sub"><b>Editing several at once</b> — <b>bulk edit</b> — narrows to just the two panels that make sense to apply across a whole set: <b>Attributes</b> and <b>Rights</b>. Tick the files you want, change a field once, and it lands on all of them.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 430" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="430" fill="#1c1a18"/>
+
+          <!-- top bar of edit surface -->
+          <g>
+            <rect x="40" y="20" width="26" height="26" rx="5" fill="#2b2825"/>
+            <path d="M48 38 l8 -8 l3 3 l-8 8 h-3 z" fill="none" stroke="#9fb9bf" stroke-width="1.3"/>
+            <text x="76" y="32" font-size="13" font-weight="640" fill="#ffffff">Bulk Edit</text>
+            <text x="76" y="47" font-size="11" fill="#8c847d">1 of 3 file(s) selected</text>
+            <rect x="716" y="20" width="56" height="28" rx="6" fill="#0B6E8A"/><text x="744" y="38" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Save</text>
+            <text x="792" y="39" font-size="15" fill="#8c847d">×</text>
+          </g>
+          <line x1="0" y1="62" x2="840" y2="62" stroke="#2b2825"/>
+
+          <!-- left tab strip -->
+          <g font-size="10.5" text-anchor="middle">
+            <!-- Attributes (active) -->
+            <rect x="14" y="78" width="72" height="46" rx="6" fill="#2b2825"/>
+            <g stroke="#cfe6ea" stroke-width="1.2" fill="none"><circle cx="44" cy="92" r="2.2"/><circle cx="56" cy="88" r="2.2"/><circle cx="56" cy="96" r="2.2"/><path d="M46 91 L54 89 M46 93 L54 95"/></g>
+            <text x="50" y="116" fill="#ffffff" font-weight="600">Attributes</text>
+            <!-- Rights -->
+            <g stroke="#8c847d" stroke-width="1.2" fill="none"><rect x="45" y="146" width="10" height="8" rx="1.5"/><path d="M47 146 v-2 a3 3 0 0 1 6 0"/></g>
+            <text x="50" y="166" fill="#8c847d">Rights</text>
+          </g>
+          <line x1="100" y1="62" x2="100" y2="430" stroke="#2b2825"/>
+
+          <!-- Attributes panel -->
+          <text x="120" y="90" font-size="14" font-weight="640" fill="#ffffff">Attributes</text>
+          <text x="120" y="107" font-size="10" fill="#8c847d">Applying tags to 1 selected file(s).</text>
+          <rect x="120" y="118" width="300" height="26" rx="6" fill="#232120" stroke="#3f3b37"/><text x="134" y="135" font-size="10" fill="#6f6862">Find attributes…</text>
+          <!-- attribute rows -->
+          <g font-size="10.5" fill="#c9c2bb">
+            <text x="120" y="164" font-weight="600" fill="#ffffff">Name</text><text x="410" y="164" text-anchor="end" fill="#6f6862">›</text>
+            <line x1="120" y1="174" x2="420" y2="174" stroke="#2b2825"/>
+            <text x="120" y="190" font-weight="600" fill="#ffffff">Language</text><text x="410" y="190" text-anchor="end" fill="#6f6862">›</text>
+            <line x1="120" y1="200" x2="420" y2="200" stroke="#2b2825"/>
+            <text x="120" y="216" font-weight="600" fill="#ffffff">Country</text><text x="410" y="216" text-anchor="end" fill="#6f6862">›</text>
+            <line x1="120" y1="226" x2="420" y2="226" stroke="#2b2825"/>
+            <text x="120" y="242" font-weight="600" fill="#ffffff">Orientation</text><text x="410" y="242" text-anchor="end" fill="#6f6862">›</text>
+            <line x1="120" y1="252" x2="420" y2="252" stroke="#2b2825"/>
+            <text x="120" y="268" font-weight="600" fill="#ffffff">Format</text><text x="410" y="268" text-anchor="end" fill="#6f6862">›</text>
+            <line x1="120" y1="278" x2="420" y2="278" stroke="#2b2825"/>
+            <text x="120" y="294" font-weight="600" fill="#ffffff">Colours</text><text x="410" y="294" text-anchor="end" fill="#6f6862">›</text>
+            <line x1="120" y1="304" x2="420" y2="304" stroke="#2b2825"/>
+            <text x="120" y="320" font-weight="600" fill="#ffffff">File Type</text><text x="410" y="320" text-anchor="end" fill="#6f6862">›</text>
+          </g>
+          <line x1="440" y1="62" x2="440" y2="430" stroke="#2b2825"/>
+
+          <!-- selected files header -->
+          <text x="470" y="90" font-size="11.5" font-weight="600" fill="#ffffff">1 file selected</text>
+          <text x="560" y="90" font-size="11" fill="#4fa3b8">Clear Selection</text>
+
+          <!-- thumbnails with selection -->
+          <!-- thumb 1 selected -->
+          <rect x="470" y="106" width="96" height="96" rx="6" fill="#3a4a52" stroke="#2f8a6f" stroke-width="2"/>
+          <rect x="478" y="114" width="16" height="16" rx="4" fill="#0B6E8A"/><path d="M482 122 l3 3 l6 -6" stroke="#fff" stroke-width="1.6" fill="none"/>
+          <text x="470" y="216" font-size="9.5" fill="#c9c2bb">Image47.jpg</text>
+          <!-- thumb 2 -->
+          <rect x="576" y="106" width="96" height="96" rx="6" fill="#5a6a72"/>
+          <rect x="584" y="114" width="16" height="16" rx="4" fill="#232120" stroke="#8c847d"/>
+          <text x="576" y="216" font-size="9.5" fill="#c9c2bb">Image50.jpg</text>
+          <!-- thumb 3 -->
+          <rect x="682" y="106" width="96" height="96" rx="6" fill="#4a5a45"/>
+          <rect x="690" y="114" width="16" height="16" rx="4" fill="#232120" stroke="#8c847d"/>
+          <text x="682" y="216" font-size="9.5" fill="#c9c2bb">Image45.jpg</text>
+
+          <!-- ===== annotations (light plates over dark UI) ===== -->
+          <g font-size="12">
+            <!-- multiselect -->
+            <rect x="470" y="250" width="308" height="76" rx="6" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="482" y="269" font-weight="640" fill="#0B6E8A">One asset, or many at once</text>
+            <text x="482" y="285" font-size="10.5" fill="#3a4a52">Tick several thumbnails and every change you make</text>
+            <text x="482" y="298" font-size="10.5" fill="#3a4a52">applies across the whole selection. Tick just one to</text>
+            <text x="482" y="311" font-size="10.5" fill="#3a4a52">edit it on its own. The count up top tracks what</text>
+            <text x="482" y="324" font-size="10.5" fill="#3a4a52">you're editing.</text>
+            <path d="M566 154 L640 154 L640 250" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="566" cy="154" r="2.5" fill="#0B6E8A"/>
+
+            <!-- two tabs -->
+            <rect x="120" y="352" width="300" height="60" rx="6" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="132" y="371" font-weight="640" fill="#261E1B">The same two panels as upload</text>
+            <text x="132" y="387" font-size="10.5" fill="#6b625c"><tspan font-weight="600">Attributes</tspan> for structured fields and tags,</text>
+            <text x="132" y="400" font-size="10.5" fill="#6b625c"><tspan font-weight="600">Rights</tspan> for licence, territories and channels.</text>
+            <path d="M120 372 L108 372 L108 100 L92 100" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/>
+            <circle cx="92" cy="100" r="2.5" fill="#0B6E8A"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Editing several — bulk edit.</b> The surface narrows to <b>Attributes</b> and <b>Rights</b>, the two things safe to change across a whole set at once. Tick the files, change a field, and it applies to all of them. The count up top tracks your selection.</figcaption>
+    </figure>
+
+    <div class="note">
+      <span class="lbl">One asset vs many — the difference in a line</span>
+      Editing a <b>single</b> asset gives you everything, including <b>Versions</b> (upload a replacement, keep the link and history). Editing <b>many</b> at once narrows to <b>Attributes</b> and <b>Rights</b> — the fields it makes sense to apply in bulk. Same editor, scoped to what you're doing.
+    </div>
+
+    <h3>4.5 &nbsp;Sharing — the external share dialog</h3>
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 548" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="548" fill="#faf9f8"/>
+
+          <!-- dialog -->
+          <rect x="40" y="24" width="440" height="500" rx="10" fill="#ffffff" stroke="#d5cec8" stroke-width="1.5"/>
+          <text x="64" y="58" font-size="16" font-weight="650" fill="#261E1B">Share File</text>
+          <text x="454" y="56" font-size="14" fill="#938981">×</text>
+
+          <!-- tabs -->
+          <text x="64" y="90" font-size="12.5" fill="#938981">People</text>
+          <text x="132" y="90" font-size="12.5" font-weight="640" fill="#0B6E8A">External link</text>
+          <rect x="128" y="98" width="74" height="2" fill="#0B6E8A"/>
+          <line x1="40" y1="100" x2="480" y2="100" stroke="#eeeae6"/>
+
+          <!-- rights banner -->
+          <rect x="64" y="112" width="392" height="46" rx="6" fill="#E4F5FC" stroke="#bfe3f0"/>
+          <text x="76" y="130" font-size="10.5" fill="#26535f">Anyone with this link can open it, subject to the checks</text>
+          <text x="76" y="143" font-size="10.5" fill="#26535f">below. Each asset's own rights still apply — a link can</text>
+          <text x="76" y="156" font-size="10.5" fill="#26535f">never give away more than you could download.</text>
+
+          <!-- allow downloads (row baseline y=186) -->
+          <g stroke="#6b625c" stroke-width="1.2" fill="none">
+            <circle cx="72" cy="182" r="6.5"/>
+            <line x1="65.5" y1="182" x2="78.5" y2="182"/>
+            <path d="M72 175.5 a9 9 0 0 1 0 13 M72 175.5 a9 9 0 0 0 0 13"/>
+          </g>
+          <text x="88" y="186" font-size="12" font-weight="620" fill="#261E1B">Allow downloads</text>
+          <rect x="424" y="176" width="32" height="17" rx="8.5" fill="#0B6E8A"/><circle cx="447.5" cy="184.5" r="6.5" fill="#fff"/>
+          <text x="64" y="205" font-size="10" fill="#938981">Off means view-only — recipients can look, but not save a copy.</text>
+
+          <!-- quality tier -->
+          <rect x="64" y="216" width="392" height="44" rx="6" fill="#f4fafc" stroke="#0B6E8A" stroke-width="1.2"/>
+          <circle cx="82" cy="238" r="6.5" fill="#fff" stroke="#0B6E8A" stroke-width="1.5"/><circle cx="82" cy="238" r="3" fill="#0B6E8A"/>
+          <text x="98" y="234" font-size="11" font-weight="620" fill="#261E1B">Preview only</text>
+          <text x="98" y="249" font-size="9.5" fill="#6b625c">Low-resolution copy. Good for review, not for use.</text>
+          <text x="64" y="278" font-size="10" fill="#938981">This site caps external links at preview only.</text>
+
+          <line x1="64" y1="290" x2="456" y2="290" stroke="#eeeae6"/>
+
+          <!-- end date -->
+          <text x="64" y="312" font-size="11" font-weight="620" fill="#261E1B">End date</text>
+          <rect x="64" y="320" width="392" height="30" rx="6" fill="#ffffff" stroke="#d5cec8"/>
+          <text x="78" y="339" font-size="11" fill="#261E1B">10 / 10 / 2026</text>
+          <rect x="432" y="328" width="14" height="14" rx="2" fill="none" stroke="#938981"/>
+          <text x="64" y="366" font-size="10" fill="#938981">This site allows links to last up to 30 days.</text>
+
+          <line x1="64" y1="378" x2="456" y2="378" stroke="#eeeae6"/>
+
+          <!-- verification header (row baseline y=402) -->
+          <g stroke="#6b625c" stroke-width="1.2" fill="none">
+            <path d="M66 392 l6 -2.5 l6 2.5 v5 c0 4 -2.6 7 -6 8.5 c-3.4 -1.5 -6 -4.5 -6 -8.5 z"/>
+          </g>
+          <text x="88" y="402" font-size="12" font-weight="620" fill="#261E1B">Verification</text>
+
+          <!-- two-factor row (baseline y=428) -->
+          <text x="64" y="428" font-size="10.5" fill="#6b625c">Require two-factor check</text>
+          <rect x="424" y="418" width="32" height="17" rx="8.5" fill="#e3ded9"/><circle cx="432.5" cy="426.5" r="6.5" fill="#fff"/>
+
+          <!-- named recipients row (baseline y=452) -->
+          <text x="64" y="452" font-size="10.5" fill="#6b625c">Only named recipients</text>
+          <rect x="424" y="442" width="32" height="17" rx="8.5" fill="#0B6E8A"/><circle cx="447.5" cy="450.5" r="6.5" fill="#fff"/>
+
+          <!-- create link button -->
+          <rect x="352" y="474" width="104" height="28" rx="6" fill="#0B6E8A"/>
+          <text x="404" y="492" font-size="11" font-weight="600" fill="#ffffff" text-anchor="middle">Create link</text>
+
+          <!-- ===== annotations ===== -->
+          <g font-size="12">
+            <!-- banner -->
+            <rect x="512" y="112" width="296" height="46" rx="6" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="524" y="130" font-weight="640" fill="#261E1B">The rule that governs everything</text>
+            <text x="524" y="145" font-size="10.5" fill="#6b625c">A link can never share more than the sender could</text>
+            <text x="524" y="157" font-size="10.5" fill="#6b625c">download. The asset's own rights always win.</text>
+            <path d="M456 135 L512 135" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/><circle cx="456" cy="135" r="2.5" fill="#0B6E8A"/>
+
+            <!-- safe defaults -->
+            <rect x="512" y="176" width="296" height="86" rx="6" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="524" y="195" font-weight="640" fill="#0B6E8A">Safe by default</text>
+            <text x="524" y="211" font-size="10.5" fill="#3a4a52">External links start locked down. You opt <tspan font-style="italic">into</tspan> risk,</text>
+            <text x="524" y="224" font-size="10.5" fill="#3a4a52">not out of it: download off unless you turn it on,</text>
+            <text x="524" y="237" font-size="10.5" fill="#3a4a52">preview-quality only, an expiry date, and a choice of</text>
+            <text x="524" y="250" font-size="10.5" fill="#3a4a52">two-factor or named-recipients-only verification.</text>
+            <path d="M456 184 L490 184 L490 200 L512 200" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/><circle cx="512" cy="200" r="2.5" fill="#0B6E8A"/>
+
+            <!-- admin ceilings -->
+            <rect x="512" y="278" width="296" height="86" rx="6" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="524" y="297" font-weight="640" fill="#261E1B">Your admin sets the ceiling</text>
+            <text x="524" y="313" font-size="10.5" fill="#6b625c">The greyed notes ("caps at preview only", "up to 30</text>
+            <text x="524" y="326" font-size="10.5" fill="#6b625c">days") are site-wide policy, not your choice. An admin</text>
+            <text x="524" y="339" font-size="10.5" fill="#6b625c">decides the maximum quality (full / preview /</text>
+            <text x="524" y="352" font-size="10.5" fill="#6b625c">watermarked) and the longest a link can live.</text>
+            <path d="M456 270 L490 270 L490 300 L512 300" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/><circle cx="512" cy="300" r="2.5" fill="#0B6E8A"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Sharing outside the company.</b> The People tab shares with colleagues; the External&nbsp;link tab (shown) sends a link to someone with no account. It opens locked down — you switch on only what you need — and an admin sets the hard limits on quality and lifespan.</figcaption>
+    </figure>
+
+    <h3>4.6 &nbsp;Downloading — Download vs Download&nbsp;as</h3>
+    <p class="sub"><strong>Download</strong> gives you the best version your rights allow, in one click. <strong>Download&nbsp;as</strong> opens this configurator when there's a real choice to make — which version, and which channel format.</p>
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 570" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="570" fill="#faf9f8"/>
+
+          <!-- dialog -->
+          <rect x="40" y="20" width="470" height="530" rx="10" fill="#ffffff" stroke="#d5cec8" stroke-width="1.5"/>
+          <text x="64" y="54" font-size="16" font-weight="650" fill="#261E1B">Download asset</text>
+          <text x="484" y="52" font-size="14" fill="#938981">×</text>
+
+          <!-- asset chip -->
+          <rect x="64" y="72" width="422" height="46" rx="6" fill="#faf9f8" stroke="#eeeae6"/>
+          <rect x="76" y="82" width="26" height="26" rx="4" fill="#3a4a52"/>
+          <text x="114" y="96" font-size="11.5" font-weight="600" fill="#261E1B">Image52.jpg</text>
+          <text x="114" y="110" font-size="9.5" fill="#938981">JPG · 1.2 MB</text>
+
+          <!-- available versions header -->
+          <text x="64" y="140" font-size="11" fill="#6b625c">Available versions</text>
+          <rect x="156" y="130" width="60" height="15" rx="3" fill="#0B6E8A"/><text x="186" y="141" font-size="9" font-weight="600" fill="#fff" text-anchor="middle">1 selected</text>
+          <text x="478" y="140" font-size="10" fill="#938981">▾</text>
+
+          <!-- version: preview -->
+          <rect x="64" y="150" width="422" height="44" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+          <rect x="76" y="164" width="16" height="16" rx="3" fill="#fff" stroke="#d5cec8"/>
+          <text x="104" y="169" font-size="11" font-weight="600" fill="#261E1B">Preview</text>
+          <text x="104" y="183" font-size="9.5" fill="#938981">For review and layout only.</text>
+          <text x="474" y="176" font-size="9.5" fill="#6b625c" text-anchor="end">1200px · 75% quality</text>
+
+          <!-- version: watermarked -->
+          <rect x="64" y="200" width="422" height="44" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+          <rect x="76" y="214" width="16" height="16" rx="3" fill="#fff" stroke="#d5cec8"/>
+          <text x="104" y="219" font-size="11" font-weight="600" fill="#261E1B">Watermarked version</text>
+          <text x="104" y="233" font-size="9.5" fill="#938981">For internal sharing and review.</text>
+          <text x="474" y="226" font-size="9.5" fill="#6b625c" text-anchor="end">2000px · Watermarked</text>
+
+          <!-- version: original (selected) -->
+          <rect x="64" y="250" width="422" height="44" rx="6" fill="#f4fafc" stroke="#0B6E8A" stroke-width="1.4"/>
+          <rect x="76" y="264" width="16" height="16" rx="3" fill="#0B6E8A"/><path d="M80 272 l3 3 l6 -6" stroke="#fff" stroke-width="1.6" fill="none"/>
+          <text x="104" y="269" font-size="11" font-weight="600" fill="#261E1B">Original file</text>
+          <text x="104" y="283" font-size="9.5" fill="#6b625c">Full resolution for approved external use.</text>
+          <text x="474" y="276" font-size="9.5" fill="#6b625c" text-anchor="end">1.2 MB</text>
+
+          <!-- available formats header -->
+          <text x="64" y="318" font-size="11" fill="#6b625c">Available formats</text>
+          <text x="478" y="318" font-size="10" fill="#938981">▾</text>
+          <text x="64" y="340" font-size="11" fill="#261E1B">Choose format <tspan fill="#938981">(0 selected)</tspan></text>
+          <text x="404" y="340" font-size="10.5" font-weight="600" fill="#0B6E8A">Select all</text><text x="466" y="340" font-size="10.5" font-weight="600" fill="#0B6E8A">Clear all</text>
+
+          <!-- template grid -->
+          <g font-family="Inter,sans-serif">
+            <!-- row 1 -->
+            <rect x="64" y="352" width="134" height="42" rx="5" fill="#fff" stroke="#e3ded9"/><text x="74" y="370" font-size="9.5" font-weight="600" fill="#261E1B">Facebook Feed Land.</text><text x="74" y="383" font-size="8.5" fill="#938981">1080 × 566 px · 72dpi</text>
+            <rect x="208" y="352" width="134" height="42" rx="5" fill="#fff" stroke="#e3ded9"/><text x="218" y="370" font-size="9.5" font-weight="600" fill="#261E1B">Instagram Square</text><text x="218" y="383" font-size="8.5" fill="#938981">1:1 ratio · 72dpi</text>
+            <rect x="352" y="352" width="134" height="42" rx="5" fill="#fff" stroke="#e3ded9"/><text x="362" y="370" font-size="9.5" font-weight="600" fill="#261E1B">Instagram Story</text><text x="362" y="383" font-size="8.5" fill="#938981">1080 × 1920 px · 72dpi</text>
+            <!-- row 2 -->
+            <rect x="64" y="402" width="134" height="42" rx="5" fill="#fff" stroke="#e3ded9"/><text x="74" y="420" font-size="9.5" font-weight="600" fill="#261E1B">LinkedIn Banner</text><text x="74" y="433" font-size="8.5" fill="#938981">1200 × 627 px · 72dpi</text>
+            <rect x="208" y="402" width="134" height="42" rx="5" fill="#fff" stroke="#e3ded9"/><text x="218" y="420" font-size="9.5" font-weight="600" fill="#261E1B">Original File</text><text x="218" y="433" font-size="8.5" fill="#938981">72dpi</text>
+            <rect x="352" y="402" width="134" height="42" rx="5" fill="#fff" stroke="#e3ded9"/><text x="362" y="420" font-size="9.5" font-weight="600" fill="#261E1B">Snapchat</text><text x="362" y="433" font-size="8.5" fill="#938981">450 × 800 px · 72dpi</text>
+          </g>
+
+          <!-- footer -->
+          <line x1="40" y1="506" x2="510" y2="506" stroke="#eeeae6"/>
+          <text x="64" y="532" font-size="10.5" fill="#938981">1 file</text>
+          <rect x="330" y="518" width="72" height="28" rx="6" fill="#fff" stroke="#d5cec8"/><text x="366" y="536" font-size="11" font-weight="600" fill="#6b625c" text-anchor="middle">Cancel</text>
+          <rect x="410" y="518" width="98" height="28" rx="6" fill="#0B6E8A"/><text x="459" y="536" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">Download (1)</text>
+
+          <!-- ===== annotations ===== -->
+          <g font-size="12">
+            <!-- version tiers -->
+            <rect x="542" y="150" width="266" height="112" rx="6" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="554" y="169" font-weight="640" fill="#0B6E8A">Versions are the rights control</text>
+            <text x="554" y="185" font-size="10.5" fill="#3a4a52"><tspan font-weight="600">Preview</tspan> — low-res, review only.</text>
+            <text x="554" y="200" font-size="10.5" fill="#3a4a52"><tspan font-weight="600">Watermarked</tspan> — internal circulation.</text>
+            <text x="554" y="215" font-size="10.5" fill="#3a4a52"><tspan font-weight="600">Original</tspan> — full-res, approved use only.</text>
+            <text x="554" y="234" font-size="10.5" fill="#3a4a52">You're only ever offered the versions your</text>
+            <text x="554" y="247" font-size="10.5" fill="#3a4a52">rights allow — the file is degraded to match,</text>
+            <text x="554" y="260" font-size="10.5" fill="#3a4a52">not just labelled.</text>
+            <path d="M486 220 L542 220" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/><circle cx="486" cy="220" r="2.5" fill="#0B6E8A"/>
+
+            <!-- formats -->
+            <rect x="542" y="352" width="266" height="60" rx="6" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="554" y="371" font-weight="640" fill="#261E1B">Formats are per-channel crops</text>
+            <text x="554" y="387" font-size="10.5" fill="#6b625c">Ready-made sizes for each channel — pick one</text>
+            <text x="554" y="400" font-size="10.5" fill="#6b625c">or several and get all of them in one download.</text>
+            <path d="M486 373 L542 373" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/><circle cx="486" cy="373" r="2.5" fill="#0B6E8A"/>
+
+            <!-- channel-gating note -->
+            <rect x="542" y="424" width="266" height="86" rx="6" fill="#fdeede" stroke="#e59a2e"/>
+            <text x="554" y="443" font-weight="640" fill="#8a5300">Worth knowing</text>
+            <text x="554" y="459" font-size="10.5" fill="#7a4e12">Where an asset is licensed only for certain</text>
+            <text x="554" y="472" font-size="10.5" fill="#7a4e12">channels, formats for unlicensed channels are</text>
+            <text x="554" y="485" font-size="10.5" fill="#7a4e12">withheld — you won't be offered a crop the asset</text>
+            <text x="554" y="498" font-size="10.5" fill="#7a4e12">isn't cleared for. (Not shown in this example.)</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Download&nbsp;as.</b> Two choices: which <em>version</em> (the rights tier) and which <em>format</em> (the channel crop). The version you pick is enforced, not just labelled — and formats for channels the asset isn't licensed for are held back.</figcaption>
+    </figure>
+  </section>
+
+  <section id="sec-card" class="pg">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Reading an asset card</h2></div>
+    <p class="sub">The asset card is the thing you'll see most and, at first, understand least. It packs an asset's whole state into a few small marks. Here's the anatomy — this wireframe I've built from the design system, so it's accurate now.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 380" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="380" fill="#faf9f8"/>
+          <!-- the card -->
+          <g>
+            <rect x="60" y="52" width="300" height="276" rx="8" fill="#ffffff" stroke="#d5cec8" stroke-width="2"/>
+            <!-- thumb area -->
+            <rect x="60" y="52" width="300" height="176" rx="8" fill="#eef0f2"/>
+            <rect x="60" y="150" width="300" height="78" fill="#eef0f2"/>
+            <path d="M150 150 l40 -34 l34 28 l40 -32 l46 38 v28 h-200 z" fill="#dfe3e7"/>
+            <circle cx="140" cy="108" r="15" fill="#dfe3e7"/>
+            <!-- checkbox (hover) top-left -->
+            <rect x="72" y="64" width="18" height="18" rx="4" fill="#ffffff" stroke="#d5cec8" stroke-width="1.5"/>
+            <!-- overflow top-right -->
+            <circle cx="342" cy="73" r="2" fill="#6b625c"/><circle cx="342" cy="80" r="2" fill="#6b625c"/><circle cx="342" cy="87" r="2" fill="#6b625c"/>
+            <!-- status pill on thumb -->
+            <rect x="72" y="196" width="70" height="22" rx="11" fill="#fdecec" stroke="#e05050" stroke-width="1"/>
+            <text x="107" y="211" font-size="12" font-weight="600" fill="#b02a2a" text-anchor="middle">Expired</text>
+            <!-- region pill -->
+            <rect x="150" y="196" width="66" height="22" rx="11" fill="#f2efed" stroke="#d5cec8" stroke-width="1"/>
+            <text x="183" y="211" font-size="12" font-weight="600" fill="#6b625c" text-anchor="middle">US-only</text>
+            <!-- meta row -->
+            <rect x="72" y="246" width="150" height="11" rx="3" fill="#e3ded9"/>
+            <rect x="72" y="266" width="96" height="9" rx="3" fill="#eeeae6"/>
+            <!-- filetype badge (grey) -->
+            <rect x="276" y="292" width="52" height="22" rx="4" fill="#6b625c"/>
+            <text x="302" y="307" font-size="11" font-weight="600" fill="#ffffff" text-anchor="middle">JPG</text>
+            <!-- lifecycle dot -->
+            <circle cx="84" cy="303" r="6" fill="#3fbf6f"/>
+            <rect x="98" y="298" width="70" height="10" rx="3" fill="#e3ded9"/>
+          </g>
+          <!-- annotations -->
+          <g font-size="13" fill="#261E1B">
+            <!-- status pill -->
+            <line x1="142" y1="207" x2="470" y2="207" stroke="#0B6E8A" stroke-width="1.2"/>
+            <circle cx="470" cy="207" r="3" fill="#0B6E8A"/>
+            <text x="482" y="203" font-weight="620">Rights status pill</text>
+            <text x="482" y="220" fill="#6b625c" font-size="12">Live · Expired · Embargoed. Light background = a state.</text>
+            <!-- region -->
+            <line x1="216" y1="228" x2="470" y2="252" stroke="#0B6E8A" stroke-width="1.2"/>
+            <circle cx="470" cy="252" r="3" fill="#0B6E8A"/>
+            <text x="482" y="248" font-weight="620">Region / scope pill</text>
+            <text x="482" y="265" fill="#6b625c" font-size="12">Where the asset is cleared for use.</text>
+            <!-- filetype -->
+            <line x1="328" y1="303" x2="470" y2="303" stroke="#0B6E8A" stroke-width="1.2"/>
+            <circle cx="470" cy="303" r="3" fill="#0B6E8A"/>
+            <text x="482" y="299" font-weight="620">File-type badge</text>
+            <text x="482" y="316" fill="#6b625c" font-size="12">A small grey badge showing the file format.</text>
+            <!-- lifecycle dot -->
+            <line x1="84" y1="309" x2="60" y2="340" stroke="#0B6E8A" stroke-width="1.2"/>
+            <circle cx="60" cy="340" r="3" fill="#0B6E8A"/>
+            <text x="72" y="344" font-weight="620" font-size="12.5">Lifecycle dot — draft / live / archived</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>The card at a glance.</b> Coloured pills carry the asset's <b>status</b> — its rights state and where it's cleared for use — so you can read the shelf without opening anything. A small grey badge shows the file format.</figcaption>
+    </figure>
+
+    <p class="sub">The pills you'll meet most, live:</p>
+    <div class="legend-grid">
+      <div class="k"><span class="chip active">Active</span></div><div class="v">Live and usable.</div>
+      <div class="k"><span class="chip expired">Expired</span></div><div class="v">Rights have lapsed. Download is blocked; a request routes to the owner as a renewal.</div>
+      <div class="k"><span class="chip embargo">Embargoed</span></div><div class="v">Not released yet. Held until its date or an explicit grant.</div>
+      <div class="k"><span class="chip draft">Draft</span></div><div class="v">Saved but not published to the library yet.</div>
+      <div class="k"><span class="chip region">US-only</span></div><div class="v">Region or scope limit — where the asset is cleared for use.</div>
+      <div class="k"><span class="chip ftype">JPG</span> <span class="chip ftype">MP4</span> <span class="chip ftype">PDF</span></div><div class="v">File-type badges — a plain grey marker showing the format.</div>
+    </div>
+
+    <div class="note">
+      <span class="lbl">Why nothing is hidden</span>
+      If you can't do something — download a restricted file, share an unapproved one — the control stays visible but disabled, with a note explaining the condition. The product never makes a control vanish, because a missing button tells you nothing: you can't tell "not allowed" from "broken." A disabled one with a reason answers both.
+    </div>
+  </section>
+
+  <section id="sec-dashboard" class="pg">
+    <div class="sec-head"><span class="sec-num">06</span><h2>The dashboard</h2></div>
+    <p class="sub">The dashboard is your landing view — the first thing you see, and a fast way back into everything. It's built entirely from <b>widgets</b>: self-contained blocks like an event banner, a folder browser, collections, and recent activity. What makes it more than a home page is that it <b>resolves by scope</b> — the same dashboard shows different things depending on whether you're looking across everything or through the lens of one folder.</p>
+
+    <h3>6.1 &nbsp;Across all folders</h3>
+    <p class="sub">With the scope set to <b>All folders</b>, the dashboard gives you the big picture: a banner for the active event, a browser for every folder you can see, and the collections shared with you.</p>
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 470" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="470" fill="#faf9f8"/>
+          <!-- rail -->
+          <rect x="0" y="0" width="30" height="470" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff"><rect x="8" y="52" width="14" height="12" rx="2" opacity="1"/><rect x="8" y="80" width="14" height="12" rx="2" opacity="0.5"/></g>
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="42" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="46" y="26" font-size="12" fill="#938981">Home / <tspan font-weight="600" fill="#261E1B">DAM</tspan></text>
+
+          <!-- scope dropdown -->
+          <rect x="46" y="54" width="130" height="26" rx="6" fill="#ffffff" stroke="#0B6E8A" stroke-width="1.2"/>
+          <text x="58" y="71" font-size="11.5" font-weight="700" fill="#261E1B">All folders</text><text x="164" y="71" font-size="10" fill="#0B6E8A">▾</text>
+          <text x="794" y="71" font-size="10" fill="#938981" text-anchor="end">18 folders</text>
+
+          <!-- event banner widget -->
+          <rect x="46" y="90" width="762" height="128" rx="8" fill="#4a3f66"/>
+          <rect x="46" y="90" width="762" height="128" rx="8" fill="#3a3358"/>
+          <!-- collage hint -->
+          <g opacity="0.35" fill="#6b6088">
+            <rect x="120" y="90" width="90" height="128"/><rect x="230" y="90" width="90" height="128"/><rect x="340" y="90" width="90" height="128"/><rect x="450" y="90" width="90" height="128"/><rect x="560" y="90" width="90" height="128"/><rect x="670" y="90" width="90" height="128"/>
+          </g>
+          <rect x="70" y="120" width="52" height="16" rx="3" fill="#1a7a45"/><text x="96" y="132" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">ACTIVE</text>
+          <text x="70" y="164" font-size="17" font-weight="700" fill="#ffffff">Summer Campaign 2026</text>
+          <text x="70" y="182" font-size="10.5" fill="#d8d3e6">Global summer product launch · multi-market</text>
+          <text x="70" y="200" font-size="9.5" fill="#b8b0d0">11 Jun 2026 – 19 Jul 2026</text>
+          <!-- carousel arrows -->
+          <circle cx="70" cy="154" r="12" fill="#ffffff" opacity="0.25"/><text x="70" y="158" font-size="12" fill="#fff" text-anchor="middle">‹</text>
+          <circle cx="784" cy="154" r="12" fill="#1a7a45"/><text x="784" y="158" font-size="12" fill="#fff" text-anchor="middle">›</text>
+
+          <!-- browse folders widget -->
+          <text x="46" y="242" font-size="12.5" font-weight="700" fill="#261E1B">Browse folders</text>
+          <rect x="158" y="232" width="20" height="14" rx="7" fill="#f2efed"/><text x="168" y="242" font-size="9" fill="#6b625c" text-anchor="middle">18</text>
+          <rect x="606" y="232" width="130" height="20" rx="5" fill="#ffffff" stroke="#e3ded9"/><text x="618" y="246" font-size="9" fill="#938981">Search folders…</text>
+          <rect x="744" y="232" width="64" height="20" rx="5" fill="#ffffff" stroke="#e3ded9"/><text x="752" y="246" font-size="9" fill="#6b625c">Title A–Z ▾</text>
+          <!-- folder cards -->
+          <g>
+            <rect x="46" y="260" width="120" height="96" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="54" y="268" width="104" height="56" rx="4" fill="#eef0f2"/><path d="M92 292 h20 v14 h-20 z M92 292 l-4 -4 h12 l4 4" fill="#cdd3d9"/><text x="54" y="338" font-size="9" font-weight="600" fill="#261E1B">Corporate</text><text x="54" y="349" font-size="7.5" fill="#938981">27 Apr – 26 Jun</text>
+            <rect x="174" y="260" width="120" height="96" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="182" y="268" width="104" height="56" rx="4" fill="#1a1a1a"/><text x="182" y="338" font-size="9" font-weight="600" fill="#261E1B">Autumn Launch</text><text x="182" y="349" font-size="7.5" fill="#938981">14 Jun – 13 Jul</text>
+            <rect x="302" y="260" width="120" height="96" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="310" y="268" width="104" height="56" rx="4" fill="#e8622a"/><text x="310" y="338" font-size="9" font-weight="600" fill="#261E1B">Brand Refresh</text><text x="310" y="349" font-size="7.5" fill="#938981">20 Jul – 20 Aug</text>
+            <rect x="430" y="260" width="120" height="96" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="438" y="268" width="104" height="56" rx="4" fill="#1a3a6e"/><text x="438" y="338" font-size="9" font-weight="600" fill="#261E1B">Spring Campaign 2027</text><text x="438" y="349" font-size="7.5" fill="#938981">24 Jun – 25 Jul</text>
+            <rect x="558" y="260" width="120" height="96" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="566" y="268" width="104" height="56" rx="4" fill="#6e1a2e"/><text x="566" y="338" font-size="9" font-weight="600" fill="#261E1B">Winter 2022</text><text x="566" y="349" font-size="7.5" fill="#938981">20 Nov – 18 Dec</text>
+            <rect x="686" y="260" width="120" height="96" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="694" y="268" width="104" height="56" rx="4" fill="#8a3a8a"/><text x="694" y="338" font-size="9" font-weight="600" fill="#261E1B">Summer 2026</text><text x="694" y="349" font-size="7.5" fill="#938981">11 Jun – 19 Jul</text>
+          </g>
+          <text x="794" y="372" font-size="9.5" font-weight="600" fill="#0B6E8A" text-anchor="end">View all 18</text>
+
+          <!-- shared collections widget -->
+          <text x="46" y="398" font-size="12.5" font-weight="700" fill="#261E1B">Shared collections</text>
+          <rect x="176" y="388" width="18" height="14" rx="7" fill="#f2efed"/><text x="185" y="398" font-size="9" fill="#6b625c" text-anchor="middle">5</text>
+          <g>
+            <rect x="46" y="412" width="150" height="52" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="54" y="420" width="30" height="36" rx="3" fill="#8a5a3a"/><rect x="88" y="420" width="30" height="17" rx="3" fill="#eef0f2"/><rect x="88" y="439" width="30" height="17" rx="3" fill="#eef0f2"/>
+            <rect x="204" y="412" width="150" height="52" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="212" y="420" width="30" height="36" rx="3" fill="#5a7a52"/><rect x="246" y="420" width="30" height="17" rx="3" fill="#eef0f2"/>
+            <rect x="362" y="412" width="150" height="52" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="370" y="420" width="66" height="36" rx="3" fill="#2fa37f"/>
+            <rect x="520" y="412" width="150" height="52" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="528" y="420" width="30" height="36" rx="3" fill="#3a6e8a"/>
+            <rect x="678" y="412" width="130" height="52" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="686" y="420" width="30" height="36" rx="3" fill="#5a8a5a"/>
+          </g>
+
+          <!-- annotation: scope dropdown -->
+          <g font-size="11.5">
+            <rect x="196" y="50" width="250" height="34" rx="5" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="206" y="66" font-weight="640" fill="#0B6E8A">The scope switch</text>
+            <text x="206" y="79" font-size="10" fill="#6b625c">Set the dashboard to all folders, or one specific folder.</text>
+            <path d="M196 67 L182 67" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/><circle cx="182" cy="67" r="2.5" fill="#0B6E8A"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Dashboard — all folders.</b> An event banner up top, every folder you can access, and the collections shared with you. The scope dropdown (top-left) is what switches the whole view.</figcaption>
+    </figure>
+
+    <h3>6.2 &nbsp;Through one folder</h3>
+    <p class="sub">Pick a single folder from that same dropdown and the dashboard recomposes around it — now the widgets show <em>this folder's</em> collections, its most recent assets, and your recent activity within it. Same framework, focused on one event.</p>
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 440" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="440" fill="#faf9f8"/>
+          <!-- rail -->
+          <rect x="0" y="0" width="30" height="440" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff"><rect x="8" y="52" width="14" height="12" rx="2" opacity="1"/><rect x="8" y="80" width="14" height="12" rx="2" opacity="0.5"/></g>
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="42" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="46" y="26" font-size="12" fill="#938981">Home / <tspan font-weight="600" fill="#261E1B">DAM</tspan></text>
+
+          <!-- scope dropdown set to a folder -->
+          <rect x="46" y="54" width="180" height="26" rx="6" fill="#ffffff" stroke="#0B6E8A" stroke-width="1.2"/>
+          <text x="58" y="71" font-size="11.5" font-weight="700" fill="#261E1B">Summer Campaign 2026</text><text x="214" y="71" font-size="10" fill="#0B6E8A">▾</text>
+          <text x="640" y="71" font-size="9.5" fill="#938981">11 Jun – 19 Jul 2026</text>
+          <rect x="756" y="60" width="52" height="16" rx="8" fill="#e6f6ec"/><text x="782" y="71" font-size="9" font-weight="600" fill="#1a7a45" text-anchor="middle">Active</text>
+
+          <!-- collections widget -->
+          <text x="46" y="104" font-size="12.5" font-weight="700" fill="#261E1B">Collections</text>
+          <rect x="122" y="94" width="20" height="14" rx="7" fill="#f2efed"/><text x="132" y="104" font-size="9" fill="#6b625c" text-anchor="middle">12</text>
+          <text x="794" y="104" font-size="9" fill="#938981" text-anchor="end">Showing 1–5 of 12</text>
+          <g>
+            <rect x="46" y="116" width="146" height="86" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="54" y="124" width="60" height="70" rx="3" fill="#8a5a3a"/><rect x="118" y="124" width="34" height="33" rx="3" fill="#3a4a52"/><rect x="118" y="161" width="34" height="33" rx="3" fill="#eef0f2"/>
+            <rect x="200" y="116" width="146" height="86" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="208" y="124" width="130" height="70" rx="3" fill="#eef0f2"/>
+            <rect x="354" y="116" width="146" height="86" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="362" y="124" width="60" height="70" rx="3" fill="#8a5a3a"/><rect x="426" y="124" width="66" height="70" rx="3" fill="#eef0f2"/>
+            <rect x="508" y="116" width="146" height="86" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="516" y="124" width="130" height="70" rx="3" fill="#eef0f2"/>
+            <rect x="662" y="116" width="146" height="86" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="670" y="124" width="130" height="70" rx="3" fill="#eef0f2"/>
+          </g>
+          <!-- collection labels -->
+          <g font-size="9">
+            <text x="54" y="216" font-weight="600" fill="#261E1B">My Favourites</text><text x="54" y="227" fill="#938981">22 assets</text>
+            <text x="208" y="216" font-weight="600" fill="#261E1B">New Test</text><text x="208" y="227" fill="#938981">0 assets</text>
+            <text x="362" y="216" font-weight="600" fill="#261E1B">New Collection</text><text x="362" y="227" fill="#938981">1 asset</text>
+            <text x="516" y="216" font-weight="600" fill="#261E1B">Launch Kit</text><text x="516" y="227" fill="#938981">0 assets</text>
+            <text x="670" y="216" font-weight="600" fill="#261E1B">Event Photos</text><text x="670" y="227" fill="#938981">0 assets</text>
+          </g>
+
+          <!-- recently added widget -->
+          <text x="46" y="256" font-size="12.5" font-weight="700" fill="#261E1B">Recently added</text>
+          <g>
+            <rect x="46" y="268" width="146" height="120" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="46" y="268" width="146" height="88" rx="6" fill="#3a6a7a"/><rect x="164" y="338" width="20" height="12" rx="2" fill="#6b625c"/><text x="174" y="347" font-size="7" fill="#fff" text-anchor="middle">JPG</text><text x="54" y="374" font-size="8.5" font-weight="600" fill="#261E1B">car1.jpg</text>
+            <rect x="200" y="268" width="146" height="120" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="200" y="268" width="146" height="88" rx="6" fill="#c9b89a"/><rect x="210" y="332" width="46" height="14" rx="7" fill="#f2efed"/><circle cx="219" cy="339" r="2.5" fill="#938981"/><text x="234" y="343" font-size="8" fill="#6b625c">Draft</text><rect x="318" y="338" width="20" height="12" rx="2" fill="#6b625c"/><text x="328" y="347" font-size="7" fill="#fff" text-anchor="middle">JPG</text><text x="208" y="374" font-size="8.5" font-weight="600" fill="#261E1B">summer26_hero…</text>
+            <rect x="354" y="268" width="146" height="120" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="354" y="268" width="146" height="88" rx="6" fill="#5a6a7a"/><rect x="364" y="332" width="46" height="14" rx="7" fill="#f2efed"/><circle cx="373" cy="339" r="2.5" fill="#938981"/><text x="388" y="343" font-size="8" fill="#6b625c">Draft</text><rect x="472" y="338" width="20" height="12" rx="2" fill="#6b625c"/><text x="482" y="347" font-size="7" fill="#fff" text-anchor="middle">JPG</text><text x="362" y="374" font-size="8.5" font-weight="600" fill="#261E1B">1440p-Wallpaper…</text>
+            <rect x="508" y="268" width="146" height="120" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="508" y="268" width="146" height="88" rx="6" fill="#5a6a7a"/><rect x="518" y="332" width="46" height="14" rx="7" fill="#f2efed"/><circle cx="527" cy="339" r="2.5" fill="#938981"/><text x="542" y="343" font-size="8" fill="#6b625c">Draft</text><rect x="626" y="338" width="20" height="12" rx="2" fill="#6b625c"/><text x="636" y="347" font-size="7" fill="#fff" text-anchor="middle">JPG</text><text x="516" y="374" font-size="8.5" font-weight="600" fill="#261E1B">1440p-Wallpaper…</text>
+            <rect x="662" y="268" width="146" height="120" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="662" y="268" width="146" height="88" rx="6" fill="#c9b89a"/><rect x="672" y="332" width="46" height="14" rx="7" fill="#f2efed"/><circle cx="681" cy="339" r="2.5" fill="#938981"/><text x="696" y="343" font-size="8" fill="#6b625c">Draft</text><rect x="780" y="338" width="20" height="12" rx="2" fill="#6b625c"/><text x="790" y="347" font-size="7" fill="#fff" text-anchor="middle">JPG</text><text x="670" y="374" font-size="8.5" font-weight="600" fill="#261E1B">summer26_hero…</text>
+          </g>
+
+          <!-- recent downloads + recent items row -->
+          <rect x="46" y="400" width="370" height="32" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="58" y="414" font-size="10" font-weight="700" fill="#261E1B">My recent downloads</text><text x="58" y="426" font-size="8.5" fill="#938981">66 · newest yesterday</text>
+          <rect x="438" y="400" width="370" height="32" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="450" y="414" font-size="10" font-weight="700" fill="#261E1B">Recent items</text><text x="450" y="426" font-size="8.5" fill="#938981">Image52.jpg · changed rights · yesterday</text>
+
+          <!-- annotation -->
+          <g font-size="11.5">
+            <rect x="240" y="50" width="286" height="34" rx="5" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="250" y="66" font-weight="640" fill="#0B6E8A">Same dashboard, one folder's worth</text>
+            <text x="250" y="79" font-size="10" fill="#6b625c">The widgets now show this folder's content and activity.</text>
+            <path d="M240 67 L226 67" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/><circle cx="226" cy="67" r="2.5" fill="#0B6E8A"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Dashboard — one folder.</b> The same widget framework, scoped to a single event: its collections, its recently added assets, and your recent activity within it.</figcaption>
+    </figure>
+
+    <div class="note">
+      <span class="lbl">Who arranges it</span>
+      The dashboard is assembled from widgets, and <b>an admin decides which widgets appear and in what order</b> for the whole DAM (in Settings). It's a configured layout rather than something each person rearranges — so everyone gets a consistent starting view, and the scope switch is how you focus it.
+    </div>
+  </section>
+
+  <section id="sec-other" class="pg">
+    <div class="sec-head"><span class="sec-num">07</span><h2>Other areas</h2></div>
+    <p class="sub">Beyond the library, the lightbox and the dashboard, a few other areas do specific jobs. This section covers them one at a time.</p>
+
+    <h3 id="sub-collections">7.1 &nbsp;Collections</h3>
+    <p class="sub">A <b>collection</b> is a hand-picked set of assets you assemble for a purpose — a campaign, a pitch, a hand-off. Unlike a folder (which is where an asset <em>lives</em> and who can see it), a collection can pull assets from anywhere, and an asset can sit in many collections at once. Collections are also the thing you share — internally or as an external link.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 470" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="470" fill="#faf9f8"/>
+          <!-- rail -->
+          <rect x="0" y="0" width="30" height="470" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff"><rect x="8" y="52" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="80" width="14" height="12" rx="2" opacity="1"/><rect x="8" y="108" width="14" height="12" rx="2" opacity="0.5"/></g>
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="46" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="46" y="27" font-size="12" fill="#938981">Home / DAM / <tspan font-weight="600" fill="#261E1B">Summer Campaign 2026</tspan></text>
+          <text x="470" y="27" font-size="11.5" font-weight="600" fill="#6b625c">12 Results</text>
+          <rect x="726" y="12" width="86" height="24" rx="6" fill="#0B6E8A"/><text x="769" y="28" font-size="10.5" font-weight="600" fill="#fff" text-anchor="middle">Create New</text>
+
+          <!-- collections panel -->
+          <rect x="46" y="62" width="210" height="392" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="60" y="84" font-size="12.5" font-weight="700" fill="#261E1B">Collections</text>
+          <rect x="60" y="94" width="182" height="24" rx="5" fill="#faf9f8" stroke="#e3ded9"/><text x="74" y="110" font-size="10" fill="#938981">Find collections…</text>
+          <!-- favourites -->
+          <g>
+            <path d="M66 134 a3 3 0 0 1 5 0 a3 3 0 0 1 5 0 q0 4 -5 7 q-5 -3 -5 -7 z" fill="none" stroke="#0B6E8A" stroke-width="1.2"/>
+            <text x="82" y="139" font-size="11" font-weight="600" fill="#261E1B">My Favourites</text>
+            <rect x="204" y="130" width="24" height="14" rx="7" fill="#f2efed"/><text x="216" y="140" font-size="9" fill="#6b625c" text-anchor="middle">22</text>
+          </g>
+          <line x1="60" y1="152" x2="242" y2="152" stroke="#f2efed"/>
+          <text x="60" y="170" font-size="9.5" font-weight="700" fill="#938981">MY COLLECTIONS <tspan fill="#b8afa8">(11)</tspan></text>
+          <!-- rows with visibility icons -->
+          <g font-size="11" fill="#261E1B">
+            <!-- private -->
+            <g stroke="#938981" stroke-width="1" fill="none"><rect x="196" y="184" width="9" height="7" rx="1.2"/><path d="M197.8 184 v-1.8 a2.2 2.2 0 0 1 4.4 0"/></g>
+            <text x="60" y="191">Q1 Campaign</text><text x="228" y="191" font-size="9" fill="#938981" text-anchor="end">0</text>
+            <!-- public/globe -->
+            <circle cx="200.5" cy="209" r="4.5" fill="none" stroke="#938981" stroke-width="1"/><path d="M196 209 h9 M200.5 204.5 a6 6 0 0 1 0 9 M200.5 204.5 a6 6 0 0 0 0 9" stroke="#938981" stroke-width="0.8" fill="none"/>
+            <text x="60" y="213">Brand Refresh</text><text x="228" y="213" font-size="9" fill="#938981" text-anchor="end">8</text>
+            <!-- people -->
+            <g stroke="#938981" stroke-width="1" fill="none"><circle cx="198" cy="230" r="2"/><circle cx="203" cy="230" r="2"/><path d="M194 236 q4 -3 8 0"/></g>
+            <text x="60" y="235">Launch Assets</text><text x="228" y="235" font-size="9" fill="#938981" text-anchor="end">3</text>
+            <!-- private -->
+            <g stroke="#938981" stroke-width="1" fill="none"><rect x="196" y="250" width="9" height="7" rx="1.2"/><path d="M197.8 250 v-1.8 a2.2 2.2 0 0 1 4.4 0"/></g>
+            <text x="60" y="257">Event Photography</text><text x="228" y="257" font-size="9" fill="#938981" text-anchor="end">14</text>
+          </g>
+          <line x1="60" y1="276" x2="242" y2="276" stroke="#f2efed"/>
+          <text x="60" y="294" font-size="9.5" font-weight="700" fill="#938981">SHARED WITH ME <tspan fill="#b8afa8">(2)</tspan></text>
+          <g font-size="11" fill="#261E1B">
+            <text x="60" y="316">Agency Handover</text>
+            <text x="60" y="338">Q4 Social Kit</text>
+          </g>
+
+          <!-- collection cards grid -->
+          <g>
+            <!-- card 1 favourites -->
+            <rect x="274" y="62" width="164" height="128" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="274" y="62" width="164" height="88" rx="6" fill="#c9a24a"/><rect x="274" y="110" width="164" height="40" fill="#c9a24a"/>
+            <text x="284" y="168" font-size="10.5" font-weight="600" fill="#261E1B">My Favourites</text>
+            <text x="284" y="182" font-size="9" fill="#938981">22 files · system collection</text>
+            <!-- card 2 -->
+            <rect x="448" y="62" width="164" height="128" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="448" y="62" width="164" height="88" rx="6" fill="#3a6e8a"/><rect x="448" y="110" width="164" height="40" fill="#3a6e8a"/>
+            <text x="458" y="168" font-size="10.5" font-weight="600" fill="#261E1B">Brand Refresh</text>
+            <text x="458" y="182" font-size="9" fill="#938981">8 files · created 14 Jan</text>
+            <!-- card 3 -->
+            <rect x="622" y="62" width="164" height="128" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="622" y="62" width="164" height="88" rx="6" fill="#5a7a52"/><rect x="622" y="110" width="164" height="40" fill="#5a7a52"/>
+            <text x="632" y="168" font-size="10.5" font-weight="600" fill="#261E1B">Launch Assets</text>
+            <text x="632" y="182" font-size="9" fill="#938981">3 files · created 21 Dec</text>
+            <!-- row 2 -->
+            <rect x="274" y="200" width="164" height="128" rx="6" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="274" y="200" width="164" height="88" rx="6" fill="#8a5a5a"/><rect x="274" y="248" width="164" height="40" fill="#8a5a5a"/>
+            <text x="284" y="306" font-size="10.5" font-weight="600" fill="#261E1B">Event Photography</text>
+            <text x="284" y="320" font-size="9" fill="#938981">14 files · created 07 Sep</text>
+            <rect x="448" y="200" width="164" height="128" rx="6" fill="#ffffff" stroke="#eeeae6"/><rect x="448" y="200" width="164" height="88" rx="6" fill="#eef0f2"/>
+            <rect x="622" y="200" width="164" height="128" rx="6" fill="#ffffff" stroke="#eeeae6"/><rect x="622" y="200" width="164" height="88" rx="6" fill="#eef0f2"/>
+          </g>
+
+          <!-- annotations -->
+          <g font-size="11.5">
+            <rect x="274" y="352" width="256" height="46" rx="5" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="284" y="369" font-weight="640" fill="#0B6E8A">Grouped by ownership</text>
+            <text x="284" y="383" font-size="10.5" fill="#6b625c">Your favourites, your own collections, and</text>
+            <text x="284" y="395" font-size="10.5" fill="#6b625c">ones others have shared with you.</text>
+
+            <rect x="546" y="352" width="256" height="60" rx="5" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="556" y="369" font-weight="640" fill="#261E1B">The icon shows who can see it</text>
+            <text x="556" y="384" font-size="10.5" fill="#6b625c">Padlock = private · people = shared with</text>
+            <text x="556" y="396" font-size="10.5" fill="#6b625c">named colleagues · globe = shared by link.</text>
+            <text x="556" y="408" font-size="10.5" fill="#6b625c">The number is how many files it holds.</text>
+            <path d="M546 400 L536 400 L536 405 L262 405 L262 209 L207 209" fill="none" stroke="#0B6E8A" stroke-width="1" stroke-dasharray="3 3"/><circle cx="207" cy="209" r="2.5" fill="#0B6E8A"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>The Collections list.</b> Your favourites and your own collections down the left, grouped by who owns them, with a visibility icon and file count on each. Collection cards fill the main area.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 470" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="470" fill="#faf9f8"/>
+          <!-- rail -->
+          <rect x="0" y="0" width="30" height="470" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff"><rect x="8" y="52" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="80" width="14" height="12" rx="2" opacity="1"/></g>
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="46" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="46" y="27" font-size="12" fill="#938981">Home / DAM / Summer Campaign 2026 / <tspan font-weight="600" fill="#261E1B">Brand Refresh</tspan></text>
+          <rect x="620" y="12" width="104" height="24" rx="6" fill="#ffffff" stroke="#d5cec8"/><text x="672" y="28" font-size="10" font-weight="600" fill="#6b625c" text-anchor="middle">Download All</text>
+          <rect x="732" y="12" width="80" height="24" rx="6" fill="#0B6E8A"/><text x="772" y="28" font-size="10.5" font-weight="600" fill="#fff" text-anchor="middle">Share</text>
+
+          <!-- back to list + search -->
+          <rect x="46" y="58" width="96" height="24" rx="6" fill="#ffffff" stroke="#0B6E8A"/><text x="94" y="74" font-size="10" font-weight="600" fill="#0B6E8A" text-anchor="middle">‹ Back to List</text>
+          <rect x="230" y="58" width="180" height="24" rx="6" fill="#ffffff" stroke="#d5cec8"/><circle cx="244" cy="70" r="4" fill="none" stroke="#938981" stroke-width="1.2"/><text x="256" y="74" font-size="9.5" fill="#938981">Search</text>
+
+          <!-- filter panel -->
+          <rect x="46" y="94" width="172" height="330" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="58" y="114" font-size="11.5" font-weight="700" fill="#261E1B">Filters</text>
+          <rect x="58" y="122" width="148" height="20" rx="5" fill="#faf9f8" stroke="#e3ded9"/><text x="68" y="136" font-size="8.5" fill="#938981">Find attributes or tags…</text>
+          <!-- Attributes expanded -->
+          <text x="58" y="160" font-size="10" font-weight="700" fill="#261E1B">Attributes</text><text x="206" y="160" font-size="10" text-anchor="end" fill="#938981">▴</text>
+          <g font-size="9" fill="#6b625c">
+            <text x="58" y="176" font-weight="600" fill="#3a3430">Language</text>
+            <rect x="64" y="181" width="8" height="8" rx="1.5" fill="#fff" stroke="#d5cec8"/><text x="78" y="188">English <tspan fill="#b8afa8">(2)</tspan></text>
+            <rect x="64" y="193" width="8" height="8" rx="1.5" fill="#fff" stroke="#d5cec8"/><text x="78" y="200">French <tspan fill="#b8afa8">(1)</tspan></text>
+            <text x="58" y="218" font-weight="600" fill="#3a3430">Orientation</text><text x="206" y="218" text-anchor="end" fill="#b8afa8">▾</text>
+            <text x="58" y="236" font-weight="600" fill="#3a3430">Format</text><text x="206" y="236" text-anchor="end" fill="#b8afa8">▾</text>
+          </g>
+          <line x1="58" y1="248" x2="206" y2="248" stroke="#f2efed"/>
+          <!-- Tags expanded -->
+          <text x="58" y="266" font-size="10" font-weight="700" fill="#261E1B">Tags</text><text x="206" y="266" font-size="10" text-anchor="end" fill="#938981">▴</text>
+          <g font-size="9" fill="#6b625c">
+            <rect x="58" y="274" width="8" height="8" rx="1.5" fill="#fff" stroke="#d5cec8"/><text x="72" y="281">Car <tspan fill="#b8afa8">(2)</tspan></text>
+            <rect x="58" y="288" width="8" height="8" rx="1.5" fill="#fff" stroke="#d5cec8"/><text x="72" y="295">Vehicle <tspan fill="#b8afa8">(2)</tspan></text>
+            <rect x="58" y="302" width="8" height="8" rx="1.5" fill="#fff" stroke="#d5cec8"/><text x="72" y="309">Wheel <tspan fill="#b8afa8">(2)</tspan></text>
+          </g>
+          <line x1="58" y1="320" x2="206" y2="320" stroke="#f2efed"/>
+          <g font-size="10" fill="#6b625c">
+            <text x="58" y="338" font-weight="600" fill="#261E1B">File type</text><text x="206" y="338" text-anchor="end" fill="#b8afa8">▾</text>
+            <text x="58" y="360" font-weight="600" fill="#261E1B">Rights state</text><text x="206" y="360" text-anchor="end" fill="#b8afa8">▾</text>
+          </g>
+
+          <!-- asset grid (2 columns) -->
+          <g>
+            <rect x="230" y="94" width="118" height="104" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="230" y="94" width="118" height="74" rx="6" fill="#d8cfc4"/><rect x="324" y="152" width="18" height="11" rx="2" fill="#6b625c"/><text x="333" y="160" font-size="6.5" fill="#fff" text-anchor="middle">JPG</text><text x="238" y="184" font-size="8.5" font-weight="600" fill="#261E1B">AstonMartin…</text>
+            <rect x="358" y="94" width="118" height="104" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="358" y="94" width="118" height="74" rx="6" fill="#c4632e"/><rect x="452" y="152" width="18" height="11" rx="2" fill="#6b625c"/><text x="461" y="160" font-size="6.5" fill="#fff" text-anchor="middle">JPG</text><text x="366" y="184" font-size="8.5" font-weight="600" fill="#261E1B">Lamborghini…</text>
+            <rect x="230" y="210" width="118" height="104" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="230" y="210" width="118" height="74" rx="6" fill="#1f4a52"/><rect x="324" y="268" width="18" height="11" rx="2" fill="#6b625c"/><text x="333" y="276" font-size="6.5" fill="#fff" text-anchor="middle">PNG</text><text x="238" y="300" font-size="8.5" font-weight="600" fill="#261E1B">RearView_Tesla…</text>
+            <rect x="358" y="210" width="118" height="104" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="358" y="210" width="118" height="74" rx="6" fill="#8a8578"/><rect x="452" y="268" width="18" height="11" rx="2" fill="#6b625c"/><text x="461" y="276" font-size="6.5" fill="#fff" text-anchor="middle">PNG</text><text x="366" y="300" font-size="8.5" font-weight="600" fill="#261E1B">Supercar_Cockpit…</text>
+            <rect x="230" y="326" width="118" height="104" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="230" y="326" width="118" height="74" rx="6" fill="#4a7a45"/><rect x="324" y="384" width="18" height="11" rx="2" fill="#6b625c"/><text x="333" y="392" font-size="6.5" fill="#fff" text-anchor="middle">JPG</text><text x="238" y="416" font-size="8.5" font-weight="600" fill="#261E1B">Frame 1</text>
+            <rect x="358" y="326" width="118" height="104" rx="6" fill="#ffffff" stroke="#e3ded9"/><rect x="358" y="326" width="118" height="74" rx="6" fill="#c9a24a"/><rect x="452" y="384" width="20" height="11" rx="2" fill="#6b625c"/><text x="462" y="392" font-size="6.5" fill="#fff" text-anchor="middle">MOV</text><text x="366" y="416" font-size="8.5" font-weight="600" fill="#261E1B">FU17WWC2020…</text>
+          </g>
+
+          <!-- collection details panel -->
+          <rect x="486" y="96" width="322" height="330" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="500" y="118" font-size="12.5" font-weight="700" fill="#261E1B">Collection Details</text>
+          <text x="500" y="140" font-size="9.5" fill="#938981">Collection name</text>
+          <rect x="500" y="146" width="294" height="24" rx="5" fill="#faf9f8" stroke="#e3ded9"/><text x="510" y="162" font-size="10.5" fill="#261E1B">Brand Refresh</text>
+          <g font-size="10" fill="#6b625c">
+            <g stroke="#938981" stroke-width="1" fill="none"><rect x="500" y="184" width="11" height="10" rx="1.5"/><line x1="500" y1="188" x2="511" y2="188"/><line x1="503" y1="182" x2="503" y2="185"/><line x1="508" y1="182" x2="508" y2="185"/></g>
+            <text x="518" y="192">Created 14 Jan 2026</text>
+            <g stroke="#938981" stroke-width="1" fill="none"><rect x="500" y="205" width="11" height="9" rx="1.5"/><circle cx="503.5" cy="208.5" r="1"/><path d="M500 212 l3 -3 l3 2 l3 -2.5 l2 1.5"/></g>
+            <text x="518" y="212">8 files</text>
+            <g stroke="#938981" stroke-width="1" fill="none"><path d="M501 227 h9 M506 223 l4 4 l-4 4"/></g>
+            <text x="518" y="232">Shared · 1 person</text>
+          </g>
+          <line x1="500" y1="246" x2="794" y2="246" stroke="#f2efed"/>
+          <text x="500" y="264" font-size="10.5" font-weight="700" fill="#261E1B">External links</text>
+          <!-- link rows -->
+          <g font-size="9">
+            <rect x="500" y="272" width="294" height="34" rx="5" fill="#faf9f8" stroke="#e3ded9"/>
+            <text x="510" y="285" font-weight="600" fill="#261E1B">Anyone with the link</text>
+            <rect x="510" y="290" width="52" height="11" rx="5.5" fill="#E4F5FC"/><text x="536" y="298" fill="#0a5468" text-anchor="middle" font-size="8">Preview only</text>
+            <text x="588" y="298" fill="#938981" font-size="8.5">Expires 28 days</text>
+            <text x="700" y="298" fill="#938981" font-size="8.5">Views 1 · DLs 2</text>
+
+            <rect x="500" y="310" width="294" height="34" rx="5" fill="#faf9f8" stroke="#e3ded9"/>
+            <text x="510" y="323" font-weight="600" fill="#261E1B">jamesdarcy@screendragon.com</text>
+            <rect x="510" y="328" width="52" height="11" rx="5.5" fill="#E4F5FC"/><text x="536" y="336" fill="#0a5468" text-anchor="middle" font-size="8">Preview only</text>
+            <text x="588" y="336" fill="#938981" font-size="8.5">Expires 22 days</text>
+            <text x="700" y="336" fill="#938981" font-size="8.5">Views 1 · DLs 0</text>
+
+            <rect x="500" y="348" width="294" height="34" rx="5" fill="#faf9f8" stroke="#e3ded9"/>
+            <text x="510" y="361" font-weight="600" fill="#261E1B">dylan@screendragon.com</text>
+            <rect x="510" y="366" width="52" height="11" rx="5.5" fill="#E4F5FC"/><text x="536" y="374" fill="#0a5468" text-anchor="middle" font-size="8">Preview only</text>
+            <text x="588" y="374" fill="#938981" font-size="8.5">Expires 17 days</text>
+            <text x="700" y="374" fill="#938981" font-size="8.5">Views 4 · DLs 0</text>
+          </g>
+
+          <!-- annotation -->
+          <g font-size="11.5">
+            <rect x="486" y="398" width="322" height="56" rx="5" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="496" y="415" font-weight="640" fill="#0B6E8A">Every external link, tracked</text>
+            <text x="496" y="430" font-size="10.5" fill="#6b625c">Each link shows its scope, whether it's preview-only,</text>
+            <text x="496" y="442" font-size="10.5" fill="#6b625c">when it expires, and how many times it's been viewed</text>
+            <text x="496" y="450" font-size="10.5" fill="#6b625c" opacity="0"> </text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Inside a collection.</b> Its assets on the left — searchable and filterable like the library — with a details panel on the right. The <b>External links</b> list is the governance view: every shared link, its scope, its expiry, and its view/download counts, all in one place.</figcaption>
+    </figure>
+
+    <div class="note">
+      <span class="lbl">Folders vs Collections — worth keeping straight</span>
+      A <b>folder</b> is where an asset lives and who's allowed to see it — structure and permission. A <b>collection</b> is a set you assemble for a purpose, drawing from any folders, and it's what you share out. One asset lives in a single folder but can appear in many collections.
+    </div>
+
+    <h3 id="sub-approvals">7.2 &nbsp;Access approvals</h3>
+    <p class="sub">When someone hits an asset they're not cleared to reach, they can <b>request access</b> rather than hitting a dead end. Those requests land here, in a queue an approver works through. Every request carries who asked, why, and when — and every decision is recorded.</p>
+    <p class="sub" style="font-size:13.5px;color:var(--text-tertiary)">This is about approving <em>access to a file</em> — letting someone through to an asset they couldn't otherwise reach. It's not the same as approving the asset's <em>content</em> (signing a design off), which is a separate thing.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 400" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="400" fill="#faf9f8"/>
+          <!-- rail -->
+          <rect x="0" y="0" width="30" height="400" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff"><rect x="8" y="52" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="80" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="108" width="14" height="12" rx="2" opacity="1"/></g>
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="42" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="46" y="26" font-size="12" fill="#938981">Home / DAM / <tspan font-weight="600" fill="#261E1B">Summer Campaign 2026</tspan></text>
+
+          <!-- title -->
+          <g stroke="#0B6E8A" stroke-width="1.4" fill="none"><path d="M52 60 l7 -3 l7 3 v6 c0 5 -3 8 -7 10 c-4 -2 -7 -5 -7 -10 z"/><path d="M56 66 l2.5 2.5 l4 -4.5" stroke-width="1.2"/></g>
+          <text x="74" y="72" font-size="15" font-weight="700" fill="#261E1B">Access Approvals</text>
+
+          <!-- tabs -->
+          <text x="46" y="102" font-size="11.5" font-weight="640" fill="#0B6E8A">Pending</text>
+          <rect x="98" y="93" width="16" height="13" rx="3" fill="#fdf3d4"/><text x="106" y="103" font-size="9" font-weight="600" fill="#8a6d1a" text-anchor="middle">5</text>
+          <rect x="46" y="110" width="52" height="2" fill="#0B6E8A"/>
+          <text x="128" y="102" font-size="11.5" fill="#938981">All Requests</text>
+          <text x="212" y="102" font-size="11.5" fill="#938981">My Requests</text>
+          <line x1="46" y1="112" x2="808" y2="112" stroke="#eeeae6"/>
+
+          <!-- table header -->
+          <g font-size="10" font-weight="700" fill="#6b625c">
+            <rect x="46" y="120" width="762" height="26" fill="#faf9f8"/>
+            <text x="56" y="137">File</text>
+            <text x="300" y="137">Requested by</text>
+            <text x="470" y="137">Reason</text>
+            <text x="620" y="137">Date</text>
+            <text x="700" y="137">Status</text>
+            <text x="756" y="137">Actions</text>
+          </g>
+
+          <!-- rows -->
+          <g font-size="9.5">
+            <!-- row 1 -->
+            <line x1="46" y1="146" x2="808" y2="146" stroke="#f2efed"/>
+            <text x="56" y="167" font-weight="600" fill="#261E1B">F18_0-dimensions-no-criteria.jpg</text>
+            <text x="300" y="163" fill="#261E1B">Rights User</text><text x="300" y="174" font-size="8.5" fill="#938981">rightsuser@…</text>
+            <text x="470" y="167" fill="#6b625c">Needs access for review</text>
+            <text x="620" y="167" fill="#6b625c">29 Jul 2026</text>
+            <rect x="700" y="158" width="46" height="15" rx="7.5" fill="#fdf3d4"/><text x="723" y="168" font-size="8.5" font-weight="600" fill="#8a6d1a" text-anchor="middle">Pending</text>
+            <rect x="742" y="158" width="40" height="15" rx="4" fill="#0B6E8A"/><text x="762" y="168" font-size="8" fill="#fff" text-anchor="middle">Approve</text>
+            <rect x="786" y="158" width="20" height="15" rx="4" fill="#fff" stroke="#d5cec8"/><text x="796" y="168" font-size="8" fill="#6b625c" text-anchor="middle">✕</text>
+            <!-- row 2 -->
+            <line x1="46" y1="182" x2="808" y2="182" stroke="#f2efed"/>
+            <text x="56" y="203" font-weight="600" fill="#261E1B">F20_license-rights-managed.jpg</text>
+            <text x="300" y="199" fill="#261E1B">Rights User</text><text x="300" y="210" font-size="8.5" fill="#938981">rightsuser@…</text>
+            <text x="470" y="203" fill="#6b625c">Needs access for review</text>
+            <text x="620" y="203" fill="#6b625c">29 Jul 2026</text>
+            <rect x="700" y="194" width="46" height="15" rx="7.5" fill="#fdf3d4"/><text x="723" y="204" font-size="8.5" font-weight="600" fill="#8a6d1a" text-anchor="middle">Pending</text>
+            <rect x="742" y="194" width="40" height="15" rx="4" fill="#0B6E8A"/><text x="762" y="204" font-size="8" fill="#fff" text-anchor="middle">Approve</text>
+            <rect x="786" y="194" width="20" height="15" rx="4" fill="#fff" stroke="#d5cec8"/><text x="796" y="204" font-size="8" fill="#6b625c" text-anchor="middle">✕</text>
+            <!-- row 3 -->
+            <line x1="46" y1="218" x2="808" y2="218" stroke="#f2efed"/>
+            <text x="56" y="239" font-weight="600" fill="#261E1B">F19_ownership-agency.jpg</text>
+            <text x="300" y="235" fill="#261E1B">Anne Cogan</text><text x="300" y="246" font-size="8.5" fill="#938981">anne@…</text>
+            <text x="470" y="239" fill="#6b625c">Needed for Autumn campaign</text>
+            <text x="620" y="239" fill="#6b625c">7 Jul 2026</text>
+            <rect x="700" y="230" width="46" height="15" rx="7.5" fill="#fdf3d4"/><text x="723" y="240" font-size="8.5" font-weight="600" fill="#8a6d1a" text-anchor="middle">Pending</text>
+            <rect x="742" y="230" width="40" height="15" rx="4" fill="#0B6E8A"/><text x="762" y="240" font-size="8" fill="#fff" text-anchor="middle">Approve</text>
+            <rect x="786" y="230" width="20" height="15" rx="4" fill="#fff" stroke="#d5cec8"/><text x="796" y="240" font-size="8" fill="#6b625c" text-anchor="middle">✕</text>
+            <!-- row 4 -->
+            <line x1="46" y1="254" x2="808" y2="254" stroke="#f2efed"/>
+            <text x="56" y="275" font-weight="600" fill="#261E1B">F10_cdn-blocked.jpg</text>
+            <text x="300" y="271" fill="#261E1B">Anne Cogan</text><text x="300" y="282" font-size="8.5" fill="#938981">anne@…</text>
+            <text x="470" y="275" fill="#6b625c">Campaign asset</text>
+            <text x="620" y="275" fill="#6b625c">7 Jul 2026</text>
+            <rect x="700" y="266" width="46" height="15" rx="7.5" fill="#fdf3d4"/><text x="723" y="276" font-size="8.5" font-weight="600" fill="#8a6d1a" text-anchor="middle">Pending</text>
+            <rect x="742" y="266" width="40" height="15" rx="4" fill="#0B6E8A"/><text x="762" y="276" font-size="8" fill="#fff" text-anchor="middle">Approve</text>
+            <rect x="786" y="266" width="20" height="15" rx="4" fill="#fff" stroke="#d5cec8"/><text x="796" y="276" font-size="8" fill="#6b625c" text-anchor="middle">✕</text>
+            <line x1="46" y1="290" x2="808" y2="290" stroke="#f2efed"/>
+          </g>
+
+          <!-- annotations -->
+          <g font-size="11.5">
+            <rect x="46" y="308" width="368" height="60" rx="5" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="56" y="325" font-weight="640" fill="#0B6E8A">A queue with the full picture</text>
+            <text x="56" y="340" font-size="10.5" fill="#6b625c">Each request shows the file, who asked, their reason,</text>
+            <text x="56" y="352" font-size="10.5" fill="#6b625c">and when. Approve or reject in place — the decision is</text>
+            <text x="56" y="364" font-size="10.5" fill="#6b625c">logged either way.</text>
+
+            <rect x="430" y="308" width="378" height="60" rx="5" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="440" y="325" font-weight="640" fill="#261E1B">Three views</text>
+            <text x="440" y="340" font-size="10.5" fill="#6b625c"><tspan font-weight="600">Pending</tspan> — what's waiting on you now. <tspan font-weight="600">All Requests</tspan> —</text>
+            <text x="440" y="352" font-size="10.5" fill="#6b625c">every request and where it landed. <tspan font-weight="600">My Requests</tspan> —</text>
+            <text x="440" y="364" font-size="10.5" fill="#6b625c">the ones you've raised yourself.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Access approvals.</b> The approver's queue for access requests. Pending shows what's waiting on you; All&nbsp;Requests and My&nbsp;Requests give the fuller history. Every decision is recorded against the file.</figcaption>
+    </figure>
+
+    <h3 id="sub-downloads">7.3 &nbsp;Downloads</h3>
+    <p class="sub">The Downloads area is your record of everything you've pulled out of the DAM, split into two views. <b>Download Queue</b> is where downloads are staged and configured before they run — the place to set versions and formats on a batch. <b>Download History</b> is the log of everything you've already downloaded, so you can pull any of it again.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 420" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="420" fill="#faf9f8"/>
+          <!-- rail -->
+          <rect x="0" y="0" width="30" height="420" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff"><rect x="8" y="52" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="80" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="108" width="14" height="12" rx="2" opacity="1"/></g>
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="42" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="46" y="26" font-size="12" fill="#938981">Home / DAM / <tspan font-weight="600" fill="#261E1B">Summer Campaign 2026</tspan></text>
+
+          <!-- title -->
+          <g stroke="#0B6E8A" stroke-width="1.4" fill="none"><line x1="60" y1="58" x2="60" y2="70"/><path d="M55 65 l5 5 l5 -5"/><line x1="53" y1="74" x2="67" y2="74"/></g>
+          <text x="80" y="72" font-size="15" font-weight="700" fill="#261E1B">Downloads</text>
+
+          <!-- left sub-nav -->
+          <rect x="46" y="94" width="230" height="70" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+          <g font-size="11">
+            <g stroke="#938981" stroke-width="1.1" fill="none"><rect x="60" y="110" width="12" height="10" rx="1.5"/><line x1="60" y1="114" x2="72" y2="114"/></g>
+            <text x="82" y="119" fill="#6b625c">Download Queue</text>
+            <!-- history active -->
+            <rect x="52" y="132" width="218" height="24" rx="5" fill="#E4F5FC"/>
+            <g stroke="#0B6E8A" stroke-width="1.1" fill="none"><circle cx="66" cy="144" r="6"/><path d="M66 141 v3 l2 1.5"/></g>
+            <text x="82" y="148" font-weight="600" fill="#0a5468">Download History</text>
+            <rect x="228" y="137" width="28" height="14" rx="7" fill="#fff" stroke="#9fd4e4"/><text x="242" y="147" font-size="9" fill="#0a5468" text-anchor="middle">66</text>
+          </g>
+
+          <!-- history rows -->
+          <g>
+            <!-- row 1 grouped -->
+            <rect x="292" y="94" width="516" height="48" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="304" y="106" width="30" height="24" rx="4" fill="#6b625c"/><text x="319" y="122" font-size="8" fill="#fff" text-anchor="middle">JPG</text>
+            <text x="346" y="115" font-size="10.5" font-weight="600" fill="#261E1B">Image46.jpg <tspan font-weight="400" fill="#938981">+2 more</tspan></text>
+            <text x="346" y="130" font-size="9" fill="#938981">Today · 3 assets · 2.0 MB</text>
+            <g stroke="#0B6E8A" stroke-width="1" fill="none"><path d="M760 112 a5 5 0 1 0 2 -4"/><path d="M760 108 v4 h4"/></g>
+            <text x="772" y="122" font-size="10" font-weight="600" fill="#0B6E8A">Re-download</text>
+            <!-- row 2 -->
+            <rect x="292" y="150" width="516" height="48" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="304" y="162" width="30" height="24" rx="4" fill="#6b625c"/><text x="319" y="178" font-size="8" fill="#fff" text-anchor="middle">JPG</text>
+            <text x="346" y="171" font-size="10.5" font-weight="600" fill="#261E1B">F19_ownership-agency.jpg</text>
+            <text x="346" y="186" font-size="9" fill="#938981">26 Aug 2026 · 1 asset</text>
+            <g stroke="#0B6E8A" stroke-width="1" fill="none"><path d="M760 168 a5 5 0 1 0 2 -4"/><path d="M760 164 v4 h4"/></g>
+            <text x="772" y="178" font-size="10" font-weight="600" fill="#0B6E8A">Re-download</text>
+            <!-- row 3 watermark -->
+            <rect x="292" y="206" width="516" height="48" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="304" y="218" width="30" height="24" rx="4" fill="#6b625c"/><text x="319" y="234" font-size="8" fill="#fff" text-anchor="middle">JPG</text>
+            <text x="346" y="227" font-size="10.5" font-weight="600" fill="#261E1B">F20_license-rights-managed.jpg</text>
+            <text x="346" y="242" font-size="9" fill="#938981">12 Aug 2026 · 1 asset</text>
+            <rect x="486" y="234" width="60" height="13" rx="3" fill="#fdeede"/><text x="516" y="244" font-size="8" font-weight="600" fill="#8a5300" text-anchor="middle">Watermark</text>
+            <g stroke="#0B6E8A" stroke-width="1" fill="none"><path d="M760 224 a5 5 0 1 0 2 -4"/><path d="M760 220 v4 h4"/></g>
+            <text x="772" y="234" font-size="10" font-weight="600" fill="#0B6E8A">Re-download</text>
+            <!-- row 4 pdf -->
+            <rect x="292" y="262" width="516" height="48" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+            <rect x="304" y="274" width="30" height="24" rx="4" fill="#6b625c"/><text x="319" y="290" font-size="8" fill="#fff" text-anchor="middle">PDF</text>
+            <text x="346" y="283" font-size="10.5" font-weight="600" fill="#261E1B">ocr-test-document.pdf</text>
+            <text x="346" y="298" font-size="9" fill="#938981">02 Aug 2026 · 1 asset · 666.0 KB</text>
+            <g stroke="#0B6E8A" stroke-width="1" fill="none"><path d="M760 280 a5 5 0 1 0 2 -4"/><path d="M760 276 v4 h4"/></g>
+            <text x="772" y="290" font-size="10" font-weight="600" fill="#0B6E8A">Re-download</text>
+          </g>
+
+          <!-- annotations -->
+          <g font-size="11.5">
+            <rect x="46" y="330" width="366" height="60" rx="5" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="56" y="347" font-weight="640" fill="#0B6E8A">A record you can pull from again</text>
+            <text x="56" y="362" font-size="10.5" fill="#6b625c">Every past download is logged with its date, how many</text>
+            <text x="56" y="374" font-size="10.5" fill="#6b625c">assets, and its size. Re-download pulls the same</text>
+            <text x="56" y="386" font-size="10.5" fill="#6b625c">files again without hunting for them.</text>
+
+            <rect x="428" y="330" width="380" height="60" rx="5" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="438" y="347" font-weight="640" fill="#261E1B">The Watermark tag matters</text>
+            <text x="438" y="362" font-size="10.5" fill="#6b625c">It marks downloads taken as the watermarked version</text>
+            <text x="438" y="374" font-size="10.5" fill="#6b625c">rather than the original — a reminder that what you</text>
+            <text x="438" y="386" font-size="10.5" fill="#6b625c">pulled reflected the rights you had at the time.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Download History.</b> Everything you've downloaded, newest first — file, date, asset count, size, and a Watermark tag where the download was the watermarked version. Re-download pulls any past download again.</figcaption>
+    </figure>
+
+    <h3 id="sub-sharedlinks">7.4 &nbsp;Shared links</h3>
+    <p class="sub">Every external link you've created, in one place. Where a collection's own details panel (see 7.1) shows the links for <em>that</em> collection, this is the view across <b>everything</b> — one table to see, audit, and shut down any link you've shared out.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 380" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="380" fill="#faf9f8"/>
+          <!-- rail -->
+          <rect x="0" y="0" width="30" height="380" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff"><rect x="8" y="52" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="80" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="108" width="14" height="12" rx="2" opacity="1"/></g>
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="42" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="46" y="26" font-size="12" fill="#938981">Home / DAM / <tspan font-weight="600" fill="#261E1B">Summer Campaign 2026</tspan></text>
+
+          <!-- title + toggle -->
+          <g stroke="#0B6E8A" stroke-width="1.5" fill="none" stroke-linecap="round"><rect x="52" y="62" width="11" height="7" rx="3.5" transform="rotate(-30 57 65)"/><rect x="61" y="61" width="11" height="7" rx="3.5" transform="rotate(-30 66 64)"/></g>
+          <text x="80" y="70" font-size="15" font-weight="700" fill="#261E1B">Shared links</text>
+          <rect x="188" y="60" width="52" height="16" rx="8" fill="#eef0f2"/><text x="214" y="72" font-size="9.5" font-weight="600" fill="#6b625c" text-anchor="middle">5 active</text>
+          <text x="640" y="70" font-size="10.5" fill="#938981">Show revoked and expired</text>
+          <rect x="780" y="62" width="28" height="15" rx="7.5" fill="#e3ded9"/><circle cx="788" cy="69.5" r="6" fill="#fff"/>
+
+          <!-- table header -->
+          <g font-size="9.5" font-weight="700" fill="#6b625c">
+            <rect x="46" y="92" width="762" height="24" fill="#faf9f8"/>
+            <text x="56" y="108">Name</text>
+            <text x="170" y="108">Covers</text>
+            <text x="290" y="108">Access</text>
+            <text x="390" y="108">Who can open it</text>
+            <text x="588" y="108">Ends</text>
+            <text x="668" y="108">Activity</text>
+            <text x="735" y="108">Status</text>
+          </g>
+
+          <!-- rows -->
+          <g font-size="9.5">
+            <!-- row 1 -->
+            <line x1="46" y1="116" x2="808" y2="116" stroke="#f2efed"/>
+            <text x="56" y="135" font-weight="600" fill="#261E1B">Dylan test</text><text x="56" y="147" font-size="8.5" fill="#b8afa8">…HVDU0s</text>
+            <text x="170" y="141" fill="#6b625c">Collection · 8 items</text>
+            <rect x="290" y="132" width="62" height="15" rx="4" fill="#E4F5FC"/><text x="321" y="142" font-size="8.5" fill="#0a5468" text-anchor="middle">Preview only</text>
+            <g stroke="#e59a2e" stroke-width="1" fill="none"><rect x="390" y="135" width="8" height="6" rx="1"/><path d="M391.5 135 v-1.5 a2.5 2.5 0 0 1 5 0 v1.5"/></g>
+            <text x="404" y="141" fill="#6b625c">Anyone with the link</text>
+            <text x="588" y="141" fill="#6b625c">Expires 28 days</text>
+            <text x="668" y="141" fill="#6b625c">1 view · 2 dl</text>
+            <rect x="735" y="132" width="40" height="15" rx="7.5" fill="#e6f6ec"/><text x="755" y="142" font-size="8.5" font-weight="600" fill="#1a7a45" text-anchor="middle">active</text>
+            <g stroke="#6b625c" stroke-width="1" fill="none"><rect x="786" y="133" width="8" height="9" rx="1.5"/></g>
+            <g stroke="#b02a2a" stroke-width="1" fill="none"><path d="M797 134 h6 M798 134 v8 h4 v-8"/></g>
+            <!-- row 2 -->
+            <line x1="46" y1="158" x2="808" y2="158" stroke="#f2efed"/>
+            <text x="56" y="177" font-weight="600" fill="#261E1B">Dylan test</text><text x="56" y="189" font-size="8.5" fill="#b8afa8">…1d5sfU</text>
+            <text x="170" y="183" fill="#6b625c">Collection · 8 items</text>
+            <rect x="290" y="174" width="62" height="15" rx="4" fill="#E4F5FC"/><text x="321" y="184" font-size="8.5" fill="#0a5468" text-anchor="middle">Preview only</text>
+            <g stroke="#1a7a45" stroke-width="1" fill="none"><rect x="390" y="177" width="8" height="6" rx="1"/><path d="M391.5 177 v-1.5 a2.5 2.5 0 0 1 5 0 v1.5"/></g>
+            <text x="404" y="183" fill="#6b625c">jamesdarcy@screendragon.com</text>
+            <text x="588" y="183" fill="#6b625c">Expires 22 days</text>
+            <text x="668" y="183" fill="#6b625c">1 view · 0 dl</text>
+            <rect x="735" y="174" width="40" height="15" rx="7.5" fill="#e6f6ec"/><text x="755" y="184" font-size="8.5" font-weight="600" fill="#1a7a45" text-anchor="middle">active</text>
+            <g stroke="#6b625c" stroke-width="1" fill="none"><rect x="786" y="175" width="8" height="9" rx="1.5"/></g>
+            <g stroke="#b02a2a" stroke-width="1" fill="none"><path d="M797 176 h6 M798 176 v8 h4 v-8"/></g>
+            <!-- row 3 -->
+            <line x1="46" y1="200" x2="808" y2="200" stroke="#f2efed"/>
+            <text x="56" y="219" font-weight="600" fill="#261E1B">Dylan test</text><text x="56" y="231" font-size="8.5" fill="#b8afa8">…NSVACk</text>
+            <text x="170" y="225" fill="#6b625c">Collection · 8 items</text>
+            <rect x="290" y="216" width="62" height="15" rx="4" fill="#E4F5FC"/><text x="321" y="226" font-size="8.5" fill="#0a5468" text-anchor="middle">Preview only</text>
+            <g stroke="#1a7a45" stroke-width="1" fill="none"><rect x="390" y="219" width="8" height="6" rx="1"/><path d="M391.5 219 v-1.5 a2.5 2.5 0 0 1 5 0 v1.5"/></g>
+            <text x="404" y="225" fill="#6b625c">dylan@screendragon.com</text>
+            <text x="588" y="225" fill="#6b625c">Expires 17 days</text>
+            <text x="668" y="225" fill="#6b625c">4 views · 0 dl</text>
+            <rect x="735" y="216" width="40" height="15" rx="7.5" fill="#e6f6ec"/><text x="755" y="226" font-size="8.5" font-weight="600" fill="#1a7a45" text-anchor="middle">active</text>
+            <g stroke="#6b625c" stroke-width="1" fill="none"><rect x="786" y="217" width="8" height="9" rx="1.5"/></g>
+            <g stroke="#b02a2a" stroke-width="1" fill="none"><path d="M797 218 h6 M798 218 v8 h4 v-8"/></g>
+            <!-- row 4 -->
+            <line x1="46" y1="242" x2="808" y2="242" stroke="#f2efed"/>
+            <text x="56" y="261" font-weight="600" fill="#261E1B">New Collection</text><text x="56" y="273" font-size="8.5" fill="#b8afa8">…fIMUyw</text>
+            <text x="170" y="267" fill="#6b625c">Collection · 1 item</text>
+            <rect x="290" y="258" width="62" height="15" rx="4" fill="#E4F5FC"/><text x="321" y="268" font-size="8.5" fill="#0a5468" text-anchor="middle">Preview only</text>
+            <g stroke="#1a7a45" stroke-width="1" fill="none"><rect x="390" y="261" width="8" height="6" rx="1"/><path d="M391.5 261 v-1.5 a2.5 2.5 0 0 1 5 0 v1.5"/></g>
+            <text x="404" y="267" fill="#6b625c">test@test.com</text>
+            <!-- password key glyph -->
+            <g stroke="#5b3fa8" stroke-width="1" fill="none"><circle cx="404" cy="278" r="2.5"/><path d="M406 278 h5 v3 M419 278 v3"/></g>
+            <text x="414" y="281" font-size="8" fill="#7a5fc8">password set</text>
+            <text x="588" y="267" fill="#6b625c">Expires 13 days</text>
+            <text x="668" y="267" fill="#6b625c">0 views · 0 dl</text>
+            <rect x="735" y="258" width="40" height="15" rx="7.5" fill="#e6f6ec"/><text x="755" y="268" font-size="8.5" font-weight="600" fill="#1a7a45" text-anchor="middle">active</text>
+            <g stroke="#6b625c" stroke-width="1" fill="none"><rect x="786" y="259" width="8" height="9" rx="1.5"/></g>
+            <g stroke="#b02a2a" stroke-width="1" fill="none"><path d="M797 260 h6 M798 260 v8 h4 v-8"/></g>
+            <line x1="46" y1="290" x2="808" y2="290" stroke="#f2efed"/>
+          </g>
+
+          <!-- annotations -->
+          <g font-size="11.5">
+            <rect x="46" y="306" width="368" height="58" rx="5" fill="#E4F5FC" stroke="#0B6E8A"/>
+            <text x="56" y="323" font-weight="640" fill="#0B6E8A">One row per link, fully auditable</text>
+            <text x="56" y="338" font-size="10.5" fill="#6b625c">Who it's for, what it covers, preview-only or not, when</text>
+            <text x="56" y="350" font-size="10.5" fill="#6b625c">it expires, and how many views and downloads it's had.</text>
+            <text x="56" y="360" font-size="10.5" fill="#6b625c">The toggle brings revoked and expired links into view too.</text>
+
+            <rect x="428" y="306" width="380" height="58" rx="5" fill="#faf9f8" stroke="#d5cec8"/>
+            <text x="438" y="323" font-weight="640" fill="#261E1B">Two actions: copy and revoke</text>
+            <text x="438" y="338" font-size="10.5" fill="#6b625c"><tspan font-weight="600">Revoke</tspan> (the bin) kills a link instantly. Copy works</text>
+            <text x="438" y="350" font-size="10.5" fill="#6b625c">only at creation — a link's address is never re-issued,</text>
+            <text x="438" y="362" font-size="10.5" fill="#6b625c">so a leaked URL can't be re-shared from here.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Shared links.</b> Every external link in one auditable table — scope, access level, recipient, expiry, and view/download activity. Revoke kills any link in a click; the toggle reveals revoked and expired ones.</figcaption>
+    </figure>
+
+    <h3 id="sub-settings">7.5 &nbsp;Settings</h3>
+    <p class="sub">Settings is the admin area that shapes how the DAM behaves — what's turned on, how rights work, how uploads are handled, what the dashboard shows. Most people never need it, but it's worth knowing two things about how it works.</p>
+    <p class="sub"><b>Settings apply at two levels.</b> Most options are set once for the whole DAM, and then can be overridden for an individual folder where that folder needs to behave differently. So a rule can be global by default but tuned per folder — the same setting, two levels of control.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 380" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="380" fill="#faf9f8"/>
+          <!-- rail -->
+          <rect x="0" y="0" width="30" height="380" fill="#0d5f63"/>
+          <rect x="7" y="12" width="16" height="16" rx="3" fill="#ffffff" opacity="0.9"/>
+          <g fill="#ffffff"><rect x="8" y="52" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="80" width="14" height="12" rx="2" opacity="0.5"/><rect x="8" y="108" width="14" height="12" rx="2" opacity="1"/></g>
+          <!-- top bar -->
+          <rect x="30" y="0" width="810" height="42" fill="#ffffff" stroke="#e3ded9"/>
+          <text x="46" y="26" font-size="12" fill="#938981">Home / DAM / <tspan font-weight="600" fill="#261E1B">Summer Campaign 2026</tspan></text>
+          <rect x="686" y="10" width="60" height="22" rx="6" fill="#ffffff" stroke="#d5cec8"/><text x="716" y="25" font-size="10" font-weight="600" fill="#6b625c" text-anchor="middle">Cancel</text>
+          <rect x="752" y="10" width="56" height="22" rx="6" fill="#0B6E8A"/><text x="780" y="25" font-size="10" font-weight="600" fill="#fff" text-anchor="middle">Save</text>
+
+          <!-- title -->
+          <text x="46" y="70" font-size="15" font-weight="700" fill="#261E1B">DAM Config</text>
+
+          <!-- left settings nav -->
+          <rect x="46" y="90" width="220" height="264" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+          <rect x="52" y="98" width="208" height="24" rx="5" fill="#f2efed"/>
+          <text x="64" y="114" font-size="10.5" font-weight="700" fill="#261E1B">Main Settings</text>
+          <g font-size="10.5" fill="#6b625c">
+            <text x="64" y="140">View Settings</text>
+            <text x="64" y="164">Folder Visibility</text>
+            <text x="64" y="188">Upload Settings</text>
+            <text x="64" y="212">File Actions</text>
+            <text x="64" y="236">Onboarding Tour</text>
+            <text x="64" y="262">Dashboard Layout</text>
+            <text x="64" y="286">Search</text>
+            <text x="64" y="310">Rights Management</text>
+            <text x="64" y="334">Tags</text>
+          </g>
+
+          <!-- right settings pane -->
+          <text x="290" y="106" font-size="11.5" font-weight="700" fill="#261E1B">View Settings</text>
+          <text x="640" y="106" font-size="9.5" font-weight="600" fill="#938981">Permissions</text>
+          <text x="762" y="106" font-size="9.5" font-weight="600" fill="#938981">On / Off</text>
+          <rect x="290" y="116" width="518" height="238" rx="8" fill="#ffffff" stroke="#e3ded9"/>
+          <!-- setting rows -->
+          <g font-size="10.5">
+            <!-- row: has approvals (off) -->
+            <text x="306" y="140" font-weight="600" fill="#261E1B">Has Approvals</text><text x="306" y="153" font-size="9" fill="#938981">Configure approval workflow settings</text>
+            <rect x="760" y="138" width="30" height="16" rx="8" fill="#e3ded9"/><circle cx="768" cy="146" r="6" fill="#fff"/>
+            <line x1="306" y1="166" x2="792" y2="166" stroke="#f2efed"/>
+            <!-- has collections (on) -->
+            <text x="306" y="186" font-weight="600" fill="#261E1B">Has Collections</text><text x="306" y="199" font-size="9" fill="#938981">Enable collection functionality</text>
+            <rect x="760" y="184" width="30" height="16" rx="8" fill="#0B6E8A"/><circle cx="782" cy="192" r="6" fill="#fff"/>
+            <line x1="306" y1="212" x2="792" y2="212" stroke="#f2efed"/>
+            <!-- add to collection (on + permission) -->
+            <text x="306" y="232" font-weight="600" fill="#261E1B">Add to Collection</text><text x="306" y="245" font-size="9" fill="#938981">Allow users to add files to collections</text>
+            <rect x="600" y="224" width="90" height="20" rx="5" fill="#ffffff" stroke="#d5cec8"/><text x="612" y="238" font-size="9.5" fill="#0B6E8A">View</text><text x="678" y="238" font-size="9" fill="#938981">▾</text>
+            <rect x="760" y="228" width="30" height="16" rx="8" fill="#0B6E8A"/><circle cx="782" cy="236" r="6" fill="#fff"/>
+            <line x1="306" y1="258" x2="792" y2="258" stroke="#f2efed"/>
+            <!-- versioning (on + permission) -->
+            <text x="306" y="278" font-weight="600" fill="#261E1B">Versioning</text><text x="306" y="291" font-size="9" fill="#938981">Enable file version control</text>
+            <rect x="600" y="270" width="90" height="20" rx="5" fill="#ffffff" stroke="#d5cec8"/><text x="612" y="284" font-size="9.5" fill="#0B6E8A">View</text><text x="678" y="284" font-size="9" fill="#938981">▾</text>
+            <rect x="760" y="274" width="30" height="16" rx="8" fill="#0B6E8A"/><circle cx="782" cy="282" r="6" fill="#fff"/>
+            <line x1="306" y1="304" x2="792" y2="304" stroke="#f2efed"/>
+            <!-- cart (on) -->
+            <text x="306" y="324" font-weight="600" fill="#261E1B">Cart</text><text x="306" y="337" font-size="9" fill="#938981">Enable download cart</text>
+            <rect x="760" y="320" width="30" height="16" rx="8" fill="#0B6E8A"/><circle cx="782" cy="328" r="6" fill="#fff"/>
+          </g>
+
+          <!-- annotation -->
+          <g font-size="11.5">
+            <rect x="290" y="366" width="0" height="0"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>Settings (DAM Config).</b> An admin area of grouped sections — view options, folders, uploads, rights, dashboard, search, tags. Each feature is a simple on/off, some with a permission level. This is the tenant-wide view; the same options can be tuned per folder.</figcaption>
+    </figure>
+
+    <div class="note">
+      <span class="lbl">Two levels, one idea</span>
+      A setting like "collections are enabled" or "uploads require rights" is normally set <b>once for the whole DAM</b>. Where a particular folder needs to differ, an admin can <b>override that setting for that folder alone</b>. Everywhere else keeps the global value. You rarely need to think about this unless you're an admin — but it's why one folder can behave slightly differently from the rest.
+    </div>
+  </section>
+
+  <section id="sec-notyet" class="pg">
+    <div class="sec-head"><span class="sec-num">08</span><h2>Not here yet</h2></div>
+    <p class="sub">A few capabilities are designed and on the way but not in the product today. Naming them saves you asking — and saves anyone promising them early. The states below show roughly where each one is, not a delivery date. For what's live right now, check with the Product team.</p>
+
+    <figure>
+      <div class="wire">
+        <svg viewBox="0 0 840 132" xmlns="http://www.w3.org/2000/svg" font-family="Inter,sans-serif">
+          <rect width="840" height="132" fill="#faf9f8"/>
+          <!-- timeline -->
+          <line x1="120" y1="56" x2="720" y2="56" stroke="#e3ded9" stroke-width="2"/>
+          <!-- node 1: building -->
+          <circle cx="180" cy="56" r="9" fill="#fdeede" stroke="#e59a2e" stroke-width="2"/>
+          <text x="180" y="34" font-size="11" font-weight="700" fill="#8a5300" text-anchor="middle">Being built now</text>
+          <text x="180" y="82" font-size="10" fill="#6b625c" text-anchor="middle">Unity integration ·</text>
+          <text x="180" y="95" font-size="10" fill="#6b625c" text-anchor="middle">CDN delivery model</text>
+          <!-- node 2: coming soon -->
+          <circle cx="420" cy="56" r="9" fill="#E4F5FC" stroke="#0B6E8A" stroke-width="2"/>
+          <text x="420" y="34" font-size="11" font-weight="700" fill="#0B6E8A" text-anchor="middle">Coming soon</text>
+          <text x="420" y="82" font-size="10" fill="#6b625c" text-anchor="middle">In-DAM approval ·</text>
+          <text x="420" y="95" font-size="10" fill="#6b625c" text-anchor="middle">asset performance metrics</text>
+          <!-- node 3: planned -->
+          <circle cx="660" cy="56" r="9" fill="#f2efed" stroke="#b8afa8" stroke-width="2"/>
+          <text x="660" y="34" font-size="11" font-weight="700" fill="#938981" text-anchor="middle">Planned</text>
+          <text x="660" y="82" font-size="10" fill="#6b625c" text-anchor="middle">Reporting · image</text>
+          <text x="660" y="95" font-size="10" fill="#6b625c" text-anchor="middle">edits · mobile</text>
+        </svg>
+      </div>
+      <figcaption><b>Roughly where things sit.</b> From actively in build, through committed-and-coming, to further-out planned items. Not a schedule — for real dates, check with the Product team.</figcaption>
+    </figure>
+
+    <table class="status">
+      <thead><tr><th>Capability</th><th>Where it's at</th><th>What it means</th></tr></thead>
+      <tbody>
+        <tr><td>Full Unity / DAM integration</td><td><span class="st build">Being built now</span></td><td>Connecting the DAM to Screendragon's Unity workflow platform, so an asset stays tied to the work that produced and approved it. Our biggest long-term differentiator — check with the Product team.</td></tr>
+        <tr><td>Full CDN delivery model</td><td><span class="st build">Being built now</span></td><td>Assets are already served through a CDN; the full delivery architecture — which versions are served, how caches refresh on a new version or rights change, and edge image transformation — is in active development.</td></tr>
+        <tr><td>Approving assets in the DAM</td><td><span class="st scoped">Coming soon</span></td><td>Approve, reject or send an asset back for changes, without leaving the DAM.</td></tr>
+        <tr><td>Reporting inside the DAM</td><td><span class="st deferred">Planned</span></td><td>Usage and demand reports built into the DAM. Intended, no date set.</td></tr>
+        <tr><td>Asset performance metrics</td><td><span class="st scoped">Coming soon</span></td><td>Each asset carrying its own cost, usage, reuse and performance — so the DAM becomes a record of what worked, not just a store of files. A flagship direction; check with the Product team.</td></tr>
+        <tr><td>Editing images (crop / resize)</td><td><span class="st deferred">Planned</span></td><td>Adjusting images inside the DAM. Not part of the first release, by choice.</td></tr>
+        <tr><td>Mobile layout</td><td><span class="st deferred">Planned</span></td><td>Works best on desktop today. Full mobile support is planned.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <span class="lbl">A few things are deliberately <em>not</em> coming</span>
+      Some absences are decisions, not gaps: complex approval routing (this is designed to live in Screendragon's Unity workflow engine rather than a weaker copy inside the DAM — an integration that isn't live yet, so <b>check with the Product team</b>), annotation and proofing (also a workflow capability), and any AI "section" or tab (AI shows up inside the task it helps, not in a room of its own). If someone asks "where's the AI tab" — there isn't one, on purpose.
+    </div>
+  </section>
+
+  <section id="sec-cheat" class="pg">
+    <div class="sec-head"><span class="sec-num">09</span><h2>Sales cheat sheet</h2></div>
+    <p class="sub">The quick version — what to lead with when a client asks, one line per area, plus the acronyms that come up. Lead with <b>governance</b>, not feature counts: the point isn't that we store files, it's that we keep them on-brand, in-rights and up to date.</p>
+
+    <div class="cheat-grid">
+      <div class="ch"><div class="ch-t">The one-liner</div><div class="ch-d">A brand asset library that doesn't just store files — it keeps them <b>on-brand, in-rights and up to date</b>, and tracks every share.</div></div>
+      <div class="ch"><div class="ch-t">Rights &amp; governance <span class="ch-tag live">strongest card</span></div><div class="ch-d">Rights are attached to the asset and <b>enforced</b> — the DAM hands out the version you're allowed and holds the rest back. A real gate, not a label.</div></div>
+      <div class="ch"><div class="ch-t">Find anything</div><div class="ch-d">Search across metadata, tags <b>and text inside files</b> (OCR). Plus visual similarity — search by what an asset says, how it's labelled, or what it looks like.</div></div>
+      <div class="ch"><div class="ch-t">AI you can trust</div><div class="ch-d">Auto-tagging with <b>provenance</b> — every tag shows if it's machine- or human-made, so AI metadata stays governable. (Generic recognition today; brand-trainable is future.)</div></div>
+      <div class="ch"><div class="ch-t">Sharing, controlled</div><div class="ch-d">External links are <b>locked down by default</b> — preview-only, expiring, verified — and every link is auditable and revocable in one place.</div></div>
+      <div class="ch"><div class="ch-t">Download the right thing</div><div class="ch-d">Version tiers <b>are</b> the enforcement (the file is degraded to match your rights), and channel crops are only offered where the asset is licensed.</div></div>
+      <div class="ch"><div class="ch-t">Edit one or many</div><div class="ch-d">Full editor for a single asset (including <b>versions</b> — replace a file, keep the link and history); bulk edit for applying a change across a whole set.</div></div>
+      <div class="ch"><div class="ch-t">The dashboard</div><div class="ch-d">One widget-built landing view that <b>resolves by scope</b> — the big picture across all folders, or focused on a single event.</div></div>
+      <div class="ch"><div class="ch-t">Where it's heading <span class="ch-tag soon">flag it</span></div><div class="ch-d">Unity workflow integration, in-DAM approval, asset performance metrics, full CDN delivery — <b>in build or coming</b>. Check with Product before promising dates.</div></div>
+    </div>
+
+    <h3>Acronyms &amp; terms</h3>
+    <div class="glossary">
+      <div class="gl"><span class="gl-k">DAM</span><span class="gl-v">Digital Asset Management — the system this guide is about: storing, finding, governing and sharing brand assets.</span></div>
+      <div class="gl"><span class="gl-k">AI</span><span class="gl-v">Artificial Intelligence — here, the automated tagging and visual-similarity features (built on generic image recognition today).</span></div>
+      <div class="gl"><span class="gl-k">OCR</span><span class="gl-v">Optical Character Recognition — reading the text inside images and documents so search can match it.</span></div>
+      <div class="gl"><span class="gl-k">CDN</span><span class="gl-v">Content Delivery Network — the infrastructure that serves asset files fast; the full delivery model is in active development.</span></div>
+      <div class="gl"><span class="gl-k">AWS Rekognition</span><span class="gl-v">Amazon's off-the-shelf image-recognition service — the source of the current AI tags.</span></div>
+      <div class="gl"><span class="gl-k">Rights</span><span class="gl-v">The licence terms attached to an asset: where, on what channels, and until when it may be used.</span></div>
+      <div class="gl"><span class="gl-k">EXIF / IPTC / XMP</span><span class="gl-v">Standard formats for metadata embedded in a file by the camera or editing tool — shown read-only in an asset's details.</span></div>
+      <div class="gl"><span class="gl-k">TTL</span><span class="gl-v">Time To Live — how long a served or cached copy stays valid before it must be refreshed; used to enforce expiring rights.</span></div>
+      <div class="gl"><span class="gl-k">URL</span><span class="gl-v">The web address of an asset or a share link. A "signed" URL carries a time-limited, rights-checked permission to access a file.</span></div>
+      <div class="gl"><span class="gl-k">Collection</span><span class="gl-v">A hand-picked set of assets assembled for a purpose — the thing you share out, internally or by external link.</span></div>
+      <div class="gl"><span class="gl-k">Folder</span><span class="gl-v">Where an asset lives and who can see it. An asset lives in one folder but can appear in many collections.</span></div>
+      <div class="gl"><span class="gl-k">Lightbox</span><span class="gl-v">The full-screen asset viewer, with a pull-out rail holding the asset's details, rights, similar assets and download.</span></div>
+      <div class="gl"><span class="gl-k">JPG · PNG · MOV · PDF · SVG</span><span class="gl-v">Common file types — image, image, video, document and vector. Shown with a plain grey badge on each asset.</span></div>
+    </div>
+  </section>
+
+  </div><!-- .page -->
+  </main><!-- .content -->
+</div><!-- .shell -->
+
+<script>
+(function(){
+  var order = ['sec-what','sec-different','sec-find','sec-tasks','sec-card','sec-dashboard','sec-other','sec-notyet','sec-cheat'];
+  var titles = {
+    'sec-what':'What the DAM is','sec-different':'What makes ours different','sec-find':'Where to find things',
+    'sec-tasks':'The things you\u2019ll actually do','sec-card':'Reading an asset card','sec-dashboard':'The dashboard',
+    'sec-other':'Other areas','sec-notyet':'Not here yet','sec-cheat':'Sales cheat sheet'
+  };
+  var pages = order.map(function(id){return document.getElementById(id);});
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.sb-nav a[href^="#"]'));
+  var content = document.querySelector('.content');
+
+  // map any sub-anchor (e.g. #sub-collections) to its parent page id
+  function pageIdFor(hash){
+    var id = hash.replace('#','');
+    if(order.indexOf(id) !== -1) return id;
+    var el = document.getElementById(id);
+    while(el && el !== document.body){
+      if(el.classList && el.classList.contains('pg')) return el.id;
+      el = el.parentElement;
+    }
+    return order[0];
+  }
+
+  function ensurePageNav(page, idx){
+    if(page.querySelector('.pagenav')) return;
+    var nav = document.createElement('div'); nav.className='pagenav';
+    if(idx>0){
+      var prev=order[idx-1];
+      var a=document.createElement('a'); a.className='prev'; a.href='#'+prev;
+      a.innerHTML='<span class="pl">\u2039 Previous</span><span class="pt">'+titles[prev]+'</span>';
+      nav.appendChild(a);
+    }
+    if(idx<order.length-1){
+      var next=order[idx+1];
+      var b=document.createElement('a'); b.className='next'; b.href='#'+next;
+      b.innerHTML='<span class="pl">Next \u203a</span><span class="pt">'+titles[next]+'</span>';
+      nav.appendChild(b);
+    }
+    page.appendChild(nav);
+  }
+
+  function show(id, doScroll){
+    var idx = order.indexOf(id); if(idx===-1){id=order[0]; idx=0;}
+    pages.forEach(function(p){ p.classList.toggle('active', p.id===id); });
+    ensurePageNav(pages[idx], idx);
+    navLinks.forEach(function(l){
+      l.classList.toggle('active', pageIdFor(l.getAttribute('href'))===id && l.parentElement.querySelector('.tn'));
+    });
+    if(doScroll!==false && content) content.scrollTop = 0;
+  }
+
+  function handle(){ show(pageIdFor(location.hash||'#'+order[0])); }
+  window.addEventListener('hashchange', handle);
+  // intercept sub-anchor clicks so they switch page then scroll to the sub-target
+  document.addEventListener('click', function(e){
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if(!a) return;
+    var hash=a.getAttribute('href');
+    var pid=pageIdFor(hash);
+    var subId=hash.replace('#','');
+    if(subId!==pid){
+      e.preventDefault();
+      show(pid,false);
+      var t=document.getElementById(subId);
+      if(t && content){ content.scrollTop = t.offsetTop - 24; }
+      history.replaceState(null,'',hash);
+    }
+  });
+  handle();
+})();
+</script>
+</body>
+</html>
